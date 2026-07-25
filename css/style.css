@@ -1,0 +1,258 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0e17;
+  color: #e8ecf4;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 16, 0.82);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.panel {
+  background: linear-gradient(145deg, #141c2e, #0f1524);
+  border: 1px solid #2a3a5c;
+  border-radius: 16px;
+  padding: 2.5rem;
+  text-align: center;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.panel.wide {
+  max-width: 720px;
+}
+
+.panel.warning {
+  border-color: #c44;
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from { transform: scale(1); }
+  to { transform: scale(1.03); }
+}
+
+h1 {
+  font-size: 2.2rem;
+  background: linear-gradient(90deg, #4af, #8cf);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.8rem;
+  color: #7cf;
+  margin-bottom: 0.5rem;
+}
+
+.subtitle {
+  color: #8899bb;
+  margin-bottom: 1.5rem;
+}
+
+.stats-box {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+
+.stats-box h3 {
+  font-size: 0.85rem;
+  color: #667;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stats-box p {
+  margin: 0.25rem 0;
+  color: #aab;
+}
+
+.btn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  margin: 0.25rem;
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, #248, #46a);
+  color: white;
+  font-weight: 600;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(68, 136, 255, 0.35);
+}
+
+.help {
+  margin-top: 1.5rem;
+  font-size: 0.85rem;
+  color: #667;
+  line-height: 1.6;
+}
+
+.help strong {
+  color: #889;
+}
+
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 1rem 1.5rem;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#hud.hidden {
+  display: none;
+}
+
+.hud-top {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hud-item {
+  font-size: 0.9rem;
+  color: #aab;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bar {
+  width: 120px;
+  height: 8px;
+  background: #1a2236;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.2s;
+}
+
+.bar-fill.hp {
+  background: linear-gradient(90deg, #e44, #f66);
+  width: 100%;
+}
+
+.bar-fill.exp {
+  background: linear-gradient(90deg, #4af, #8cf);
+  width: 0%;
+}
+
+.augment-list {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.augment-tag {
+  background: rgba(68, 136, 255, 0.15);
+  border: 1px solid rgba(68, 136, 255, 0.3);
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  color: #8cf;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.choice-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid #2a3a5c;
+  border-radius: 12px;
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s, background 0.2s;
+  text-align: left;
+}
+
+.choice-card:hover {
+  border-color: #48f;
+  background: rgba(68, 136, 255, 0.08);
+  transform: translateY(-3px);
+}
+
+.choice-card .icon {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.choice-card h3 {
+  color: #bdf;
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.choice-card p {
+  color: #889;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.choice-card .tier {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: #6a8;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+}

@@ -1,0 +1,584 @@
+import { CONFIG, getLevelMults } from './config.js';
+
+let nextEntityId = 1;
+
+export function worldToScreen(wx, wy, camera, cx, cy) {
+  return { x: wx - camera.x + cx, y: wy - camera.y + cy };
+}
+
+export function screenToWorld(sx, sy, camera, cx, cy) {
+  return { x: sx - cx + camera.x, y: sy - cy + camera.y };
+}
+
+export class Player {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.angle = 0;
+    this.radius = CONFIG.PLAYER.radius;
+    this.maxHp = CONFIG.PLAYER.maxHp;
+    this.hp = this.maxHp;
+    this.fireCooldown = 0;
+    this.invincible = 0;
+    this.contactCooldown = 0;
+  }
+
+  update(dt, worldMouse, stats, keys) {
+    let mx = 0, my = 0;
+    if (keys.has('w') || keys.has('arrowup')) my -= 1;
+    if (keys.has('s') || keys.has('arrowdown')) my += 1;
+    if (keys.has('a') || keys.has('arrowleft')) mx -= 1;
+    if (keys.has('d') || keys.has('arrowright')) mx += 1;
+
+    if (mx !== 0 || my !== 0) {
+      const len = Math.hypot(mx, my);
+      const speed = CONFIG.PLAYER.baseMoveSpeed * stats.moveSpeedMult;
+      this.x += (mx / len) * speed * dt;
+      this.y += (my / len) * speed * dt;
+    }
+
+    const dx = worldMouse.x - this.x;
+    const dy = worldMouse.y - this.y;
+    this.angle = Math.atan2(dy, dx);
+
+    if (this.invincible > 0) this.invincible -= dt;
+    if (stats.regen > 0) {
+      this.hp = Math.min(this.maxHp, this.hp + stats.regen * dt);
+    }
+  }
+
+  canFire(dt, stats) {
+    this.fireCooldown -= dt;
+    const rate = CONFIG.PLAYER.baseFireRate * stats.fireRateMult;
+    if (this.fireCooldown <= 0) {
+      this.fireCooldown = 1 / rate;
+      return true;
+    }
+    return false;
+  }
+
+  takeDamage(amount) {
+    if (this.invincible > 0) return false;
+    this.hp -= amount;
+    this.invincible = 0.4;
+    return true;
+  }
+
+  draw(ctx, cx, cy) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this.angle);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.invincible > 0 && Math.floor(Date.now() / 80) % 2 ? '#fff' : '#3af';
+    ctx.fill();
+    ctx.strokeStyle = '#8cf';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#bdf';
+    ctx.fillRect(this.radius - 2, -4, 14, 8);
+    ctx.restore();
+  }
+}
+
+export class Bullet {
+  constructor(x, y, angle, stats) {
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.speed = CONFIG.PLAYER.baseBulletSpeed * stats.bulletSpeedMult;
+    this.damage = CONFIG.PLAYER.baseDamage * stats.damageMult;
+    this.radius = 5;
+    this.maxHits = 1 + CONFIG.PLAYER.basePierce + stats.pierce;
+    this.hitEnemies = new Set();
+    this.critChance = CONFIG.PLAYER.baseCritChance + stats.critChance;
+    this.critMult = CONFIG.PLAYER.baseCritMult + stats.critMult;
+    this.knockback = 120 * stats.knockbackMult;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.x += Math.cos(this.angle) * this.speed * dt;
+    this.y += Math.sin(this.angle) * this.speed * dt;
+  }
+
+  canHit(enemy) {
+    return !this.hitEnemies.has(enemy.id);
+  }
+
+  registerHit(enemy) {
+    this.hitEnemies.add(enemy.id);
+    if (this.hitEnemies.size >= this.maxHits) this.dead = true;
+  }
+
+  getDamage() {
+    const crit = Math.random() < this.critChance;
+    return {
+      amount: crit ? this.damage * this.critMult : this.damage,
+      crit,
+    };
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff8';
+    ctx.shadowColor = '#ff0';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+export class EnemyBullet {
+  constructor(x, y, angle, speed, damage, radius = 6) {
+    this.id = nextEntityId++;
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.speed = speed;
+    this.damage = damage;
+    this.radius = radius;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.x += Math.cos(this.angle) * this.speed * dt;
+    this.y += Math.sin(this.angle) * this.speed * dt;
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#f6a';
+    ctx.shadowColor = '#f0a';
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+export class Enemy {
+  constructor(x, y, typeKey, level) {
+    const type = CONFIG.ENEMY_TYPES[typeKey] || CONFIG.ENEMY_TYPES.melee;
+    const lm = getLevelMults(level);
+
+    this.id = nextEntityId++;
+    this.typeKey = typeKey;
+    this.type = type;
+    this.x = x;
+    this.y = y;
+    this.level = level;
+    this.hp = CONFIG.ENEMY.baseHp * type.hpMult * lm.hp;
+    this.maxHp = this.hp;
+    this.speed = CONFIG.ENEMY.baseSpeed * type.speedMult * lm.speed;
+    this.damage = CONFIG.ENEMY.baseDamage * type.damageMult * lm.damage;
+    this.attackSpeedMult = lm.attackSpeed;
+    this.radius = type.radius;
+    this.exp = Math.floor(CONFIG.ENEMY.baseExp * type.expMult * (1 + (level - 1) * 0.05));
+    this.knockbackResist = type.knockbackResist || 0;
+    this.dead = false;
+    this.flash = 0;
+    this.knockbackX = 0;
+    this.knockbackY = 0;
+    this.meleeCooldown = 0;
+    this.fireCooldown = 0.5 + Math.random() * 0.5;
+    this.color = type.color;
+    this.stroke = type.stroke;
+  }
+
+  update(dt, targetX, targetY, enemyBullets) {
+    if (this.flash > 0) this.flash -= dt;
+    this.meleeCooldown = Math.max(0, this.meleeCooldown - dt);
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+
+    this.x += this.knockbackX * dt;
+    this.y += this.knockbackY * dt;
+    this.knockbackX *= Math.pow(0.05, dt);
+    this.knockbackY *= Math.pow(0.05, dt);
+
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const dist = Math.hypot(dx, dy) || 1;
+
+    if (this.typeKey === 'ranged') {
+      this.updateRanged(dt, dx, dy, dist, targetX, targetY, enemyBullets);
+    } else {
+      this.x += (dx / dist) * this.speed * dt;
+      this.y += (dy / dist) * this.speed * dt;
+    }
+  }
+
+  updateRanged(dt, dx, dy, dist, targetX, targetY, enemyBullets) {
+    const t = this.type;
+    const preferred = t.preferredRange;
+    const minR = t.minRange;
+
+    if (dist < minR) {
+      this.x -= (dx / dist) * this.speed * dt;
+      this.y -= (dy / dist) * this.speed * dt;
+    } else if (dist > preferred + 40) {
+      this.x += (dx / dist) * this.speed * dt;
+      this.y += (dy / dist) * this.speed * dt;
+    }
+
+    if (this.fireCooldown <= 0 && dist < preferred + 120 && dist > minR - 30) {
+      const angle = Math.atan2(dy, dx);
+      const dmg = this.damage * t.bulletDamageMult;
+      enemyBullets.push(new EnemyBullet(this.x, this.y, angle, t.bulletSpeed, dmg));
+      this.fireCooldown = 1 / (t.fireRate * this.attackSpeedMult);
+    }
+  }
+
+  takeDamage(amount, angle, knockback) {
+    this.hp -= amount;
+    this.flash = 0.1;
+    const kb = knockback * (1 - this.knockbackResist);
+    this.knockbackX += Math.cos(angle) * kb;
+    this.knockbackY += Math.sin(angle) * kb;
+    if (this.hp <= 0) this.dead = true;
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.flash > 0 ? '#fff' : this.color;
+    ctx.fill();
+    ctx.strokeStyle = this.stroke;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const barW = this.radius * 2;
+    const ratio = this.hp / this.maxHp;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(s.x - barW / 2, s.y - this.radius - 8, barW, 4);
+    ctx.fillStyle = this.typeKey === 'ranged' ? '#c8f' : '#4f4';
+    ctx.fillRect(s.x - barW / 2, s.y - this.radius - 8, barW * ratio, 4);
+  }
+}
+
+export class Boss extends Enemy {
+  constructor(x, y, level) {
+    super(x, y, 'tank', level);
+    const lm = getLevelMults(level);
+    this.typeKey = 'boss';
+    this.hp = CONFIG.BOSS.hp * (1 + (level - CONFIG.BOSS_LEVEL) * 0.15);
+    this.maxHp = this.hp;
+    this.speed = CONFIG.BOSS.speed;
+    this.damage = CONFIG.BOSS.damage * lm.damage;
+    this.radius = CONFIG.BOSS.radius;
+    this.exp = CONFIG.BOSS.exp;
+    this.knockbackResist = CONFIG.BOSS.knockbackResist;
+    this.minionTimer = CONFIG.BOSS.minionInterval;
+    this.fireCooldown = 1;
+    this.pulse = 0;
+    this.phase2 = false;
+    this.color = '#f42';
+    this.stroke = '#800';
+  }
+
+  update(dt, targetX, targetY, enemyBullets) {
+    this.pulse += dt * 3;
+    this.minionTimer -= dt;
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+
+    this.x += this.knockbackX * dt;
+    this.y += this.knockbackY * dt;
+    this.knockbackX *= Math.pow(0.02, dt);
+    this.knockbackY *= Math.pow(0.02, dt);
+
+    if (!this.phase2 && this.hp / this.maxHp < CONFIG.BOSS.phase2HpRatio) {
+      this.phase2 = true;
+      this.speed *= 1.35;
+    }
+
+    const dx = targetX - this.x;
+    const dy = targetY - this.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    this.x += (dx / dist) * this.speed * dt;
+    this.y += (dy / dist) * this.speed * dt;
+
+    if (this.fireCooldown <= 0) {
+      const baseAngle = Math.atan2(dy, dx);
+      const shots = this.phase2 ? 8 : 5;
+      for (let i = 0; i < shots; i++) {
+        const spread = (i - (shots - 1) / 2) * 0.18;
+        enemyBullets.push(new EnemyBullet(
+          this.x, this.y, baseAngle + spread,
+          CONFIG.BOSS.bulletSpeed, this.damage * 0.6, 8
+        ));
+      }
+      this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * (this.phase2 ? 1.3 : 1));
+    }
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    ctx.save();
+    ctx.translate(s.x, s.y);
+
+    const r = this.radius + Math.sin(this.pulse) * 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    grad.addColorStop(0, this.phase2 ? '#f08' : '#f84');
+    grad.addColorStop(1, '#820');
+    ctx.fillStyle = this.flash > 0 ? '#fff' : grad;
+    ctx.fill();
+    ctx.strokeStyle = '#f00';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    const barW = 200;
+    const ratio = this.hp / this.maxHp;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-barW / 2, -r - 20, barW, 10);
+    ctx.fillStyle = '#f44';
+    ctx.fillRect(-barW / 2, -r - 20, barW * ratio, 10);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.phase2 ? 'BOSS Phase 2' : 'BOSS', 0, -r - 24);
+    ctx.restore();
+  }
+}
+
+export class OrbitShield {
+  constructor(player, index, total) {
+    this.player = player;
+    this.index = index;
+    this.total = total;
+    this.angle = (index / total) * Math.PI * 2;
+    this.radius = 55;
+    this.orbitRadius = 8;
+    this.damage = 15;
+    this.speed = 2.5;
+  }
+
+  update(dt) {
+    this.angle += this.speed * dt;
+  }
+
+  getPosition() {
+    const a = this.angle + (this.index / this.total) * Math.PI * 2;
+    return {
+      x: this.player.x + Math.cos(a) * this.radius,
+      y: this.player.y + Math.sin(a) * this.radius,
+    };
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const pos = this.getPosition();
+    const s = worldToScreen(pos.x, pos.y, camera, cx, cy);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.orbitRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#8cf';
+    ctx.shadowColor = '#48f';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+export class Particle {
+  constructor(x, y, color, speed = 100) {
+    this.x = x;
+    this.y = y;
+    const a = Math.random() * Math.PI * 2;
+    const s = speed * (0.5 + Math.random());
+    this.vx = Math.cos(a) * s;
+    this.vy = Math.sin(a) * s;
+    this.life = 0.4 + Math.random() * 0.3;
+    this.maxLife = this.life;
+    this.color = color;
+    this.radius = 2 + Math.random() * 3;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.life -= dt;
+    this.vx *= 0.95;
+    this.vy *= 0.95;
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    const alpha = this.life / this.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function pickEnemyType(level) {
+  const types = Object.values(CONFIG.ENEMY_TYPES);
+  let pool = types.filter((t) => {
+    if (t.id === 'ranged' && level < 3) return false;
+    if (t.id === 'tank' && level < 2) return false;
+    return true;
+  });
+  const totalWeight = pool.reduce((s, t) => s + t.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const t of pool) {
+    roll -= t.weight;
+    if (roll <= 0) return t.id;
+  }
+  return 'melee';
+}
+
+export function spawnEnemy(player, w, h, level) {
+  const margin = CONFIG.ENEMY.spawnMargin;
+  const halfW = w / 2 + margin;
+  const halfH = h / 2 + margin;
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  switch (side) {
+    case 0: x = player.x + (Math.random() - 0.5) * halfW * 2; y = player.y - halfH; break;
+    case 1: x = player.x + halfW; y = player.y + (Math.random() - 0.5) * halfH * 2; break;
+    case 2: x = player.x + (Math.random() - 0.5) * halfW * 2; y = player.y + halfH; break;
+    default: x = player.x - halfW; y = player.y + (Math.random() - 0.5) * halfH * 2;
+  }
+  return new Enemy(x, y, pickEnemyType(level), level);
+}
+
+export function spawnBoss(player, level) {
+  return new Boss(player.x, player.y - 500, level);
+}
+
+export function fireBullets(player, stats) {
+  const bullets = [];
+  const count = CONFIG.PLAYER.baseBulletCount + stats.bulletCount;
+  const spread = CONFIG.PLAYER.baseSpread + (count > 1 ? 0.12 : 0);
+  const startAngle = player.angle - spread * (count - 1) / 2;
+
+  for (let i = 0; i < count; i++) {
+    const angle = startAngle + spread * i;
+    const bx = player.x + Math.cos(angle) * (player.radius + 4);
+    const by = player.y + Math.sin(angle) * (player.radius + 4);
+    bullets.push(new Bullet(bx, by, angle, stats));
+  }
+  return bullets;
+}
+
+export function separateEnemiesFromPlayer(player, enemies) {
+  enemies.forEach((e) => {
+    if (e.dead) return;
+    const dx = e.x - player.x;
+    const dy = e.y - player.y;
+    const dist = Math.hypot(dx, dy) || 0.001;
+    const minDist = player.radius + e.radius * 0.85;
+    if (dist < minDist) {
+      const push = (minDist - dist) / dist;
+      e.x += dx * push;
+      e.y += dy * push;
+    }
+  });
+}
+
+export function getPointBlankHits(player, stats, enemies) {
+  const hits = [];
+  const damage = CONFIG.PLAYER.baseDamage * stats.damageMult;
+  const knockback = 140 * stats.knockbackMult;
+  const closeRange = player.radius + 36;
+  const halfCone = 0.75;
+
+  enemies.forEach((e) => {
+    if (e.dead) return;
+    const dx = e.x - player.x;
+    const dy = e.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    const touchDist = player.radius + e.radius;
+    if (dist > closeRange + e.radius && dist > touchDist) return;
+
+    const overlap = dist < touchDist;
+    if (!overlap) {
+      const angleToEnemy = Math.atan2(dy, dx);
+      let diff = angleToEnemy - player.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) > halfCone) return;
+    }
+
+    const angle = Math.atan2(dy, dx);
+    hits.push({
+      enemy: e,
+      amount: damage,
+      angle,
+      knockback,
+      crit: Math.random() < CONFIG.PLAYER.baseCritChance + stats.critChance,
+    });
+  });
+
+  return hits;
+}
+
+export function getMeleeHits(player, stats, enemies, dt) {
+  const hits = [];
+  const damage = CONFIG.PLAYER.baseDamage * stats.damageMult * 0.55 * dt * 4;
+  const knockback = 200 * stats.knockbackMult;
+
+  enemies.forEach((e) => {
+    if (e.dead) return;
+    e.meleeCooldown = Math.max(0, (e.meleeCooldown || 0) - dt);
+    const dist = Math.hypot(e.x - player.x, e.y - player.y);
+    if (dist >= player.radius + e.radius) return;
+    if (e.meleeCooldown > 0) return;
+
+    e.meleeCooldown = 0.12;
+    const angle = Math.atan2(e.y - player.y, e.x - player.x);
+    hits.push({ enemy: e, amount: damage, angle, knockback });
+  });
+
+  return hits;
+}
+
+export function spawnParticles(particles, x, y, color, count = 8) {
+  for (let i = 0; i < count; i++) {
+    if (particles.length >= CONFIG.PARTICLES.max) particles.shift();
+    particles.push(new Particle(x, y, color));
+  }
+}
+
+export function drawWorldBackground(ctx, camera, w, h, cx, cy) {
+  ctx.fillStyle = '#0a0e17';
+  ctx.fillRect(0, 0, w, h);
+
+  const gridSize = CONFIG.WORLD.gridSize;
+  const offX = (-camera.x + cx) % gridSize;
+  const offY = (-camera.y + cy) % gridSize;
+
+  ctx.strokeStyle = 'rgba(40, 60, 100, 0.3)';
+  ctx.lineWidth = 1;
+  for (let x = offX - gridSize; x < w + gridSize; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = offY - gridSize; y < h + gridSize; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  const dots = 12;
+  for (let i = 0; i < dots; i++) {
+    const wx = Math.floor(camera.x / 400) * 400 + (i * 137) % 400 - 200;
+    const wy = Math.floor(camera.y / 400) * 400 + (i * 211) % 400 - 200;
+    const s = worldToScreen(wx, wy, camera, cx, cy);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(68, 136, 255, 0.12)';
+    ctx.fill();
+  }
+}

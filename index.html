@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>센터 디펜스</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- 로비 -->
+    <div id="lobby" class="overlay">
+      <div class="panel">
+        <h1>센터 디펜스</h1>
+        <p class="subtitle">WASD로 이동, 마우스로 조준하세요</p>
+        <div class="stats-box">
+          <h3>최고 기록</h3>
+          <p>최고 레벨: <span id="bestLevel">1</span></p>
+          <p>클리어 횟수: <span id="clearCount">0</span></p>
+        </div>
+        <button id="startBtn" class="btn primary">게임 시작</button>
+        <div class="help">
+          <p><strong>조작</strong></p>
+          <p>마우스 — 조준 &amp; 자동 사격</p>
+          <p>WASD — 이동 (배경 스크롤)</p>
+          <p>적 종류 — 돌진병 / 속공병 / 중갑병 / 사수</p>
+          <p>적 처치 → EXP 획득 → 레벨업 시 증강 선택</p>
+          <p>레벨 <span id="bossLevelHint">10</span> 도달 시 보스 등장!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-top">
+        <div class="hud-item">HP <div class="bar"><div id="hpBar" class="bar-fill hp"></div></div></div>
+        <div class="hud-item">EXP <div class="bar"><div id="expBar" class="bar-fill exp"></div></div></div>
+        <div class="hud-item">LV <span id="levelText">1</span></div>
+        <div class="hud-item">킬 <span id="killText">0</span></div>
+      </div>
+      <div id="augmentList" class="augment-list"></div>
+    </div>
+
+    <!-- 레벨업 증강 선택 -->
+    <div id="levelUp" class="overlay hidden">
+      <div class="panel wide">
+        <h2>레벨업!</h2>
+        <p class="subtitle">증강을 하나 선택하세요</p>
+        <div id="augmentChoices" class="choices"></div>
+      </div>
+    </div>
+
+    <!-- 보스 경고 -->
+    <div id="bossWarning" class="overlay hidden">
+      <div class="panel warning">
+        <h2>⚠ 보스 등장!</h2>
+        <p>거대 적이 접근합니다...</p>
+      </div>
+    </div>
+
+    <!-- 승리 -->
+    <div id="victory" class="overlay hidden">
+      <div class="panel">
+        <h2>🎉 보스 처치!</h2>
+        <p>미션 클리어! 로비로 돌아갑니다.</p>
+        <button id="returnLobbyBtn" class="btn primary">로비로</button>
+      </div>
+    </div>
+
+    <!-- 게임 오버 -->
+    <div id="gameOver" class="overlay hidden">
+      <div class="panel">
+        <h2>게임 오버</h2>
+        <p>레벨 <span id="finalLevel">1</span> · 킬 <span id="finalKills">0</span></p>
+        <button id="retryBtn" class="btn primary">다시 시도</button>
+        <button id="lobbyBtn" class="btn">로비로</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="fileWarning" class="overlay hidden">
+    <div class="panel">
+      <h2>로컬 서버 필요</h2>
+      <p>HTML 파일을 직접 열면 게임이 실행되지 않습니다.</p>
+      <p style="margin-top:1rem"><strong>start.bat</strong> 더블클릭 후<br>브라우저에서 <a href="http://localhost:3456" style="color:#8cf">http://localhost:3456</a> 접속</p>
+    </div>
+  </div>
+
+  <script>
+    if (location.protocol === 'file:') {
+      document.getElementById('fileWarning').classList.remove('hidden');
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
