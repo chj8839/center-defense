@@ -92,5 +92,5 @@ js/             게임 로직 · 네트워크 · 터치 조작
 server/         WebSocket 게임 서버 (Railway)
 ```
 
-**배포** — 클라이언트: Vercel · 서버: Railway (`server/`)  
-멀티 서버 URL: `js/network-config.js`
+**배포** — 클라이언트: Vercel · 서버: Railway (**저장소 루트**에서 `npm start`, Root Directory를 `server`로 두지 마세요)  
+멀티 서버 URL: `js/network-config.js` · 헬스체크: `/health`

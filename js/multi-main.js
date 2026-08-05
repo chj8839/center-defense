@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { NetworkClient } from './network.js';
-import { WS_URL } from './network-config.js';
+import { WS_URL, verifyServer } from './network-config.js';
 import { touchControls } from './touchControls.js';
 import {
   drawWorldBackground, drawRemotePlayer, drawEnemySnapshot, worldToScreen,
@@ -25,6 +25,7 @@ const expBar = document.getElementById('expBar');
 const levelText = document.getElementById('levelText');
 const killText = document.getElementById('killText');
 const multiStatus = document.getElementById('multiStatus');
+const reconnectBtn = document.getElementById('reconnectBtn');
 
 const mouse = { x: 0, y: 0 };
 const keys = { up: false, down: false, left: false, right: false };
@@ -268,12 +269,22 @@ function loop(timestamp) {
 }
 
 async function initNetwork() {
+  reconnectBtn.classList.add('hidden');
   multiStatus.textContent = `서버 연결 중... (${WS_URL})`;
+
+  const baseOk = await verifyServer(WS_URL);
+  if (!baseOk) {
+    multiStatus.textContent = '게임 서버에 연결할 수 없습니다. Railway에서 npm start 배포가 필요합니다.';
+    reconnectBtn.classList.remove('hidden');
+    return;
+  }
+
   try {
     await net.connect();
     multiStatus.textContent = '연결됨 · 방을 만들거나 참가하세요';
-  } catch {
-    multiStatus.textContent = '서버 연결 실패. Railway 서버가 실행 중인지 확인하세요.';
+  } catch (err) {
+    multiStatus.textContent = err.message || '서버 연결 실패';
+    reconnectBtn.classList.remove('hidden');
   }
 }
 
@@ -297,6 +308,15 @@ net.on('error', (msg) => {
 });
 net.on('disconnected', () => {
   multiStatus.textContent = '서버 연결이 끊어졌습니다.';
+  reconnectBtn.classList.remove('hidden');
+  show(document.getElementById('multiLobbyActions'));
+  hide(roomInfo);
+  inRoom = false;
+});
+
+reconnectBtn.addEventListener('click', () => {
+  net.disconnect();
+  initNetwork();
 });
 
 document.getElementById('createRoomBtn').addEventListener('click', () => {

@@ -1,10 +1,27 @@
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
 import { RoomManager } from './gameRoom.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
 const PORT = process.env.PORT || 8080;
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+};
+
 const rooms = new RoomManager();
+const sockets = new Map();
 
 function send(ws, data) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(data));
@@ -25,21 +42,44 @@ function broadcastLobby(room) {
   }
 }
 
-const sockets = new Map();
+function serveStatic(req, res) {
+  let urlPath = req.url?.split('?')[0] || '/';
+  if (urlPath === '/') urlPath = '/index.html';
+  if (urlPath === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, service: 'center-defense-server' }));
+    return;
+  }
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Center Defense multiplayer server');
-});
+  const filePath = path.normalize(path.join(ROOT, urlPath));
+  if (!filePath.startsWith(ROOT)) {
+    res.writeHead(403).end('Forbidden');
+    return;
+  }
 
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404).end('Not found');
+      return;
+    }
+    const ext = path.extname(filePath);
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+const server = http.createServer(serveStatic);
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
   const playerId = randomUUID();
   ws.playerId = playerId;
+  ws.isAlive = true;
   sockets.set(playerId, ws);
 
   send(ws, { type: 'connected', playerId });
+
+  ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', (raw) => {
     let msg;
@@ -53,12 +93,14 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'createRoom': {
+        if (room) rooms.leave(playerId);
         const r = rooms.createRoom(playerId, msg.name || 'Player');
         r.broadcast = () => broadcastLobby(r);
         send(ws, { type: 'roomCreated', code: r.code, ...r.getLobbyInfo() });
         break;
       }
       case 'joinRoom': {
+        if (room) rooms.leave(playerId);
         const r = rooms.joinRoom(playerId, msg.code, msg.name || 'Player');
         if (!r) {
           send(ws, { type: 'error', message: '방을 찾을 수 없거나 이미 시작됐습니다.' });
@@ -88,8 +130,10 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'leaveRoom': {
+        const r = rooms.getRoomByPlayer(playerId);
         rooms.leave(playerId);
         send(ws, { type: 'left' });
+        if (r && r.players.size > 0) broadcastLobby(r);
         break;
       }
       default:
@@ -99,13 +143,24 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     sockets.delete(playerId);
-    const room = rooms.getRoomByPlayer(playerId);
-    if (room) {
+    const r = rooms.getRoomByPlayer(playerId);
+    if (r) {
       rooms.leave(playerId);
-      if (room.players.size > 0) broadcastLobby(room);
+      if (r.players.size > 0) broadcastLobby(r);
     }
   });
 });
+
+setInterval(() => {
+  for (const ws of sockets.values()) {
+    if (!ws.isAlive) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30000);
 
 setInterval(() => {
   for (const room of rooms.getPlayingRooms()) {
@@ -118,4 +173,5 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log(`Center Defense server on port ${PORT}`);
+  console.log(`Static root: ${ROOT}`);
 });
