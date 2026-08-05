@@ -82,7 +82,7 @@ export class GameRoom {
       bossEnemyId: null,
       bossWarningTimer: 0,
       gameState: 'playing',
-      augmentChoices: null,
+      augmentQueue: [],
       alive: true,
       orbitAngles: [],
       input: { up: false, down: false, left: false, right: false, angle: 0 },
@@ -115,7 +115,7 @@ export class GameRoom {
       p.bossEnemyId = null;
       p.bossWarningTimer = 0;
       p.gameState = 'playing';
-      p.augmentChoices = null;
+      p.augmentQueue = [];
       p.alive = true;
       p.orbitAngles = [];
       p.player.hp = p.player.maxHp;
@@ -131,6 +131,49 @@ export class GameRoom {
     this.state = 'waiting';
   }
 
+  endRound() {
+    if (this.state !== 'playing') return;
+    if (this.interval) clearInterval(this.interval);
+    this.interval = null;
+    this.state = 'waiting';
+    this.enemies = [];
+    this.bullets = [];
+    this.enemyBullets = [];
+    this.spawnTimer = 0;
+    for (const p of this.players.values()) {
+      p.alive = true;
+      p.gameState = 'playing';
+      p.augmentQueue = [];
+      p.bossEnemyId = null;
+      p.bossWarningTimer = 0;
+      p.pendingBoss = null;
+    }
+    this.onRoundEnd?.(this);
+  }
+
+  hasActivePlayers() {
+    return [...this.players.values()].some(
+      (p) => p.alive && (p.gameState === 'playing' || p.gameState === 'boss' || p.gameState === 'bossWarning'),
+    );
+  }
+
+  forfeitPlayer(id) {
+    const p = this.players.get(id);
+    if (!p || this.state !== 'playing') return false;
+    if (!p.alive) return true;
+    p.alive = false;
+    p.gameState = 'gameOver';
+    p.augmentQueue = [];
+    p.bossEnemyId = null;
+    p.bossWarningTimer = 0;
+    p.pendingBoss = null;
+    this.bullets = this.bullets.filter((b) => b.ownerId !== id);
+    if (!this.hasActivePlayers()) {
+      this.endRound();
+    }
+    return true;
+  }
+
   setInput(id, input) {
     const p = this.players.get(id);
     if (!p) return;
@@ -139,8 +182,9 @@ export class GameRoom {
 
   pickAugment(id, augmentId) {
     const p = this.players.get(id);
-    if (!p || p.gameState !== 'levelUp' || !p.augmentChoices) return;
-    const choice = p.augmentChoices.find((a) => a.id === augmentId);
+    if (!p?.augmentQueue?.length) return;
+    const entry = p.augmentQueue[0];
+    const choice = entry.choices.find((a) => a.id === augmentId);
     if (!choice) return;
     const augDef = AUGMENTS.find((a) => a.id === augmentId);
     if (!augDef) return;
@@ -149,40 +193,51 @@ export class GameRoom {
     if (aug.id === 'orbit') {
       p.orbitAngles.push(Math.random() * Math.PI * 2);
     }
-    p.augmentChoices = null;
-    if (this.shouldTriggerBoss(p)) {
-      const bossType = getBossType(p.level);
+    p.augmentQueue.shift();
+
+    const clearedLevel = entry.level;
+    if (isBossLevel(clearedLevel) && clearedLevel >= p.nextBossLevel && !p.bossEnemyId) {
+      const bossType = getBossType(clearedLevel);
       p.gameState = 'bossWarning';
       p.bossWarningTimer = 2.5;
       p.pendingBoss = bossType;
-    } else {
-      p.gameState = p.bossEnemyId ? 'boss' : 'playing';
+    } else if (p.gameState !== 'boss') {
+      p.gameState = 'playing';
     }
-  }
 
-  shouldTriggerBoss(p) {
-    return isBossLevel(p.level) && p.level >= p.nextBossLevel && !p.bossEnemyId;
+    this.tryLevelUp(p);
   }
 
   levelUpPlayer(p) {
     if (p.level >= CONFIG.MAX_LEVEL) return;
     p.level++;
-    p.augmentChoices = getRandomChoices(p.stats, 3).map((a) => ({
+    const choices = getRandomChoices(p.stats, 3).map((a) => ({
       id: a.id,
       name: a.name,
       icon: a.icon,
       desc: a.desc,
       tier: a.tier,
     }));
-    p.gameState = 'levelUp';
+    if (!choices.length) {
+      this.tryLevelUp(p);
+      return;
+    }
+    p.augmentQueue.push({ level: p.level, choices });
   }
 
-  addExp(p, amount) {
-    p.exp += Math.floor(amount * p.stats.expMult * CONFIG.PLAYER.baseExpMult);
-    while (p.exp >= expForLevel(p.level) && p.level < CONFIG.MAX_LEVEL) {
+  tryLevelUp(p) {
+    if (!p.alive) return;
+    if (p.gameState === 'bossWarning' || p.gameState === 'gameOver' || p.gameState === 'victory') return;
+    if (p.exp >= expForLevel(p.level) && p.level < CONFIG.MAX_LEVEL) {
       p.exp -= expForLevel(p.level);
       this.levelUpPlayer(p);
     }
+  }
+
+  addExp(p, amount) {
+    if (p.gameState === 'bossWarning') return;
+    p.exp += Math.floor(amount * p.stats.expMult * CONFIG.PLAYER.baseExpMult);
+    this.tryLevelUp(p);
   }
 
   getSpawnInterval() {
@@ -215,9 +270,14 @@ export class GameRoom {
     }
   }
 
+  isPausedPlayer(p) {
+    return p.gameState === 'bossWarning'
+      || p.gameState === 'gameOver' || p.gameState === 'victory';
+  }
+
   updatePlayer(p, dt) {
     if (!p.alive) return;
-    if (p.gameState === 'levelUp' || p.gameState === 'gameOver' || p.gameState === 'victory') return;
+    if (p.gameState === 'gameOver' || p.gameState === 'victory') return;
 
     if (p.gameState === 'bossWarning') {
       p.bossWarningTimer -= dt;
@@ -370,7 +430,7 @@ export class GameRoom {
     this.enemyBullets = this.enemyBullets.filter((b) => {
       if (b.dead) return false;
       for (const p of this.players.values()) {
-        if (!p.alive) continue;
+        if (!p.alive || this.isPausedPlayer(p)) continue;
         if (Math.hypot(b.x - p.player.x, b.y - p.player.y) < b.radius + p.player.radius) {
           if (p.player.takeDamage(b.damage)) {
             if (p.player.hp <= 0) {
@@ -387,7 +447,7 @@ export class GameRoom {
     for (const e of this.enemies) {
       if (e.dead || e.typeKey === 'ranged') continue;
       for (const p of this.players.values()) {
-        if (!p.alive) continue;
+        if (!p.alive || this.isPausedPlayer(p)) continue;
         const dist = Math.hypot(e.x - p.player.x, e.y - p.player.y);
         if (dist < e.radius + p.player.radius) {
           const angle = Math.atan2(e.y - p.player.y, e.x - p.player.x);
@@ -407,6 +467,10 @@ export class GameRoom {
     }
 
     this.enemies = this.enemies.filter((e) => !e.dead);
+
+    if (!this.hasActivePlayers()) {
+      this.endRound();
+    }
   }
 
   getLobbyInfo() {
@@ -447,6 +511,7 @@ export class GameRoom {
         color: p.color,
         alive: p.alive,
         gameState: p.gameState,
+        moveSpeedMult: p.stats.moveSpeedMult,
         augmentTags: Object.entries(p.stats.picked).map(([aid, tier]) => {
           const aug = AUGMENTS.find((a) => a.id === aid);
           return aug ? `${aug.name} Lv${tier}` : aid;
@@ -454,6 +519,7 @@ export class GameRoom {
         bossWarning: p.gameState === 'bossWarning' && p.pendingBoss
           ? { name: p.pendingBoss.name, desc: p.pendingBoss.desc }
           : null,
+        pendingAugments: p.augmentQueue?.length ?? 0,
       })),
       enemies: this.enemies.map((e) => ({
         id: e.id,
@@ -470,12 +536,13 @@ export class GameRoom {
         phase2: e.phase2 || false,
       })),
       bullets: this.bullets.filter((b) => !b.dead).map((b) => ({
-        x: b.x, y: b.y, angle: b.angle, ownerId: b.ownerId,
+        id: b.id, x: b.x, y: b.y, angle: b.angle, ownerId: b.ownerId,
       })),
       enemyBullets: this.enemyBullets.map((b) => ({
-        x: b.x, y: b.y, radius: b.radius,
+        id: b.id, x: b.x, y: b.y, radius: b.radius,
       })),
-      augmentChoices: me?.gameState === 'levelUp' ? me.augmentChoices : null,
+      augmentChoices: me?.augmentQueue?.[0]?.choices ?? null,
+      pendingAugments: me?.augmentQueue?.length ?? 0,
     };
   }
 }
@@ -509,15 +576,23 @@ export class RoomManager {
 
   leave(playerId) {
     const code = this.playerRoom.get(playerId);
-    if (!code) return;
+    if (!code) return null;
     const room = this.rooms.get(code);
-    if (!room) return;
+    if (!room) {
+      this.playerRoom.delete(playerId);
+      return null;
+    }
     room.removePlayer(playerId);
     this.playerRoom.delete(playerId);
     if (room.players.size === 0) {
       room.stop();
       this.rooms.delete(code);
+      return null;
     }
+    if (room.state === 'playing' && !room.hasActivePlayers()) {
+      room.endRound();
+    }
+    return room;
   }
 
   getPlayingRooms() {

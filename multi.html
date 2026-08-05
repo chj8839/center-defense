@@ -29,7 +29,7 @@
           <h3>방 코드: <span id="roomCodeDisplay">----</span></h3>
           <ul id="playerList" class="player-list"></ul>
           <button id="startMultiBtn" class="btn primary hidden">게임 시작</button>
-          <button id="leaveRoomBtn" class="btn">나가기</button>
+          <button id="leaveRoomBtn" class="btn" type="button">나가기</button>
         </div>
         <p id="multiStatus" class="help"></p>
         <button id="reconnectBtn" class="btn hidden">서버 재연결</button>
@@ -44,16 +44,19 @@
         <div class="hud-item">EXP <div class="bar"><div id="expBar" class="bar-fill exp"></div></div></div>
         <div class="hud-item">LV <span id="levelText">1</span></div>
         <div class="hud-item">킬 <span id="killText">0</span></div>
+        <button id="augmentPickBtn" class="augment-pick-btn hidden" type="button">✨ 증강 <span id="augmentPendingCount">0</span></button>
+        <button id="leaveGameBtn" class="hud-leave-btn" type="button">로비로</button>
       </div>
       <div id="augmentList" class="augment-list"></div>
       <div id="teamHud" class="team-hud"></div>
     </div>
 
-    <!-- 레벨업 -->
-    <div id="levelUp" class="overlay hidden">
+    <!-- 증강 선택 (수동 열기) -->
+    <div id="levelUp" class="overlay panel-overlay hidden">
       <div class="panel wide">
-        <h2>레벨업!</h2>
-        <p class="subtitle">증강을 하나 선택하세요</p>
+        <button id="closeAugmentBtn" class="btn close-augment-btn" type="button">✕ 닫기</button>
+        <h2>증강 선택</h2>
+        <p class="subtitle">남은 선택 <span id="augmentPanelPending">0</span>회 · 게임은 계속 진행됩니다</p>
         <div id="augmentChoices" class="choices"></div>
       </div>
     </div>
@@ -81,7 +84,7 @@
       <div class="panel">
         <h2>게임 오버</h2>
         <p>레벨 <span id="finalLevel">1</span> · 킬 <span id="finalKills">0</span></p>
-        <p class="subtitle">다른 플레이어는 계속 전투 중입니다</p>
+        <p id="gameOverSubtitle" class="subtitle">다른 플레이어는 계속 전투 중입니다</p>
         <button id="spectateBtn" class="btn primary">관전</button>
         <button id="lobbyBtn" class="btn">로비로</button>
       </div>

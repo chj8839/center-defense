@@ -85,6 +85,7 @@ export class Player {
 
 export class Bullet {
   constructor(x, y, angle, stats) {
+    this.id = nextEntityId++;
     this.x = x;
     this.y = y;
     this.angle = angle;

@@ -27,6 +27,13 @@ function send(ws, data) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(data));
 }
 
+function attachRoomHandlers(room) {
+  room.onRoundEnd = (r) => {
+    r.broadcast = () => broadcastLobby(r);
+    broadcastLobby(r);
+  };
+}
+
 function broadcastRoom(room) {
   for (const [pid] of room.players) {
     const ws = sockets.get(pid);
@@ -115,6 +122,7 @@ wss.on('connection', (ws) => {
       case 'createRoom': {
         if (room) rooms.leave(playerId);
         const r = rooms.createRoom(playerId, msg.name || 'Player');
+        attachRoomHandlers(r);
         r.broadcast = () => broadcastLobby(r);
         send(ws, { type: 'roomCreated', code: r.code, ...r.getLobbyInfo() });
         break;
@@ -126,6 +134,7 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'error', message: '방을 찾을 수 없거나 이미 시작됐습니다.' });
           break;
         }
+        attachRoomHandlers(r);
         r.broadcast = () => broadcastLobby(r);
         broadcastLobby(r);
         break;
@@ -149,11 +158,35 @@ wss.on('connection', (ws) => {
         broadcastRoom(room);
         break;
       }
+      case 'forfeit': {
+        if (!room || room.state !== 'playing') break;
+        if (room.forfeitPlayer(playerId)) {
+          if (room.state === 'waiting') {
+            // endRound → onRoundEnd already broadcast lobby
+          } else {
+            broadcastRoom(room);
+            send(ws, {
+              type: 'lobby',
+              ...room.getLobbyInfo(),
+              waitingOthers: true,
+            });
+          }
+        }
+        break;
+      }
       case 'leaveRoom': {
         const r = rooms.getRoomByPlayer(playerId);
-        rooms.leave(playerId);
+        if (r) {
+          if (r.state === 'playing') {
+            r.forfeitPlayer(playerId);
+          }
+          const remaining = rooms.leave(playerId);
+          if (remaining) {
+            if (remaining.state === 'playing') broadcastRoom(remaining);
+            else broadcastLobby(remaining);
+          }
+        }
         send(ws, { type: 'left' });
-        if (r && r.players.size > 0) broadcastLobby(r);
         break;
       }
       default:

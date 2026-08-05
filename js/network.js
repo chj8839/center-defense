@@ -116,8 +116,20 @@ export class NetworkClient {
     this.send({ type: 'pickAugment', augmentId });
   }
 
+  forfeit() {
+    if (!this.send({ type: 'forfeit' })) {
+      this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
+      return false;
+    }
+    return true;
+  }
+
   leaveRoom() {
-    this.send({ type: 'leaveRoom' });
+    if (!this.send({ type: 'leaveRoom' })) {
+      this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
+      return false;
+    }
+    return true;
   }
 
   disconnect() {
