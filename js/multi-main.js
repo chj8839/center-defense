@@ -65,10 +65,31 @@ function resize() {
   cy = h / 2;
   mouse.x = cx;
   mouse.y = cy;
+  updateHudSafeTop();
+}
+
+function updateHudSafeTop() {
+  const hudTop = document.querySelector('.hud-top');
+  if (!hudTop || hud.classList.contains('hidden')) return;
+  const safeTop = Math.ceil(hudTop.getBoundingClientRect().bottom + 8);
+  document.documentElement.style.setProperty('--hud-safe-top', `${safeTop}px`);
 }
 
 function show(el) { el.classList.remove('hidden'); }
 function hide(el) { el.classList.add('hidden'); }
+
+function bindMobileTap(el, handler) {
+  let lastTouchAt = 0;
+  el.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    lastTouchAt = Date.now();
+    handler(e);
+  }, { passive: false });
+  el.addEventListener('click', (e) => {
+    if (Date.now() - lastTouchAt < 500) return;
+    handler(e);
+  });
+}
 
 function hideAllOverlays() {
   hide(hud);
@@ -206,6 +227,7 @@ function handleLocalOverlay(me) {
 
   show(hud);
   updateAugmentHud(me);
+  updateHudSafeTop();
 
   if (augmentPanelOpen && gameState?.augmentChoices?.length) {
     showLevelUpChoices(gameState.augmentChoices);
@@ -615,15 +637,13 @@ document.getElementById('startMultiBtn').addEventListener('click', () => {
   hide(multiLobby);
   show(hud);
   touchControls.setActive(true);
+  updateHudSafeTop();
 });
 
-document.getElementById('leaveRoomBtn').addEventListener('click', exitRoom);
-
-document.getElementById('returnLobbyBtn').addEventListener('click', exitRoom);
-
-document.getElementById('lobbyBtn').addEventListener('click', exitRoom);
-
-leaveGameBtn.addEventListener('click', forfeitToLobby);
+bindMobileTap(document.getElementById('leaveRoomBtn'), exitRoom);
+bindMobileTap(document.getElementById('returnLobbyBtn'), exitRoom);
+bindMobileTap(document.getElementById('lobbyBtn'), exitRoom);
+bindMobileTap(leaveGameBtn, forfeitToLobby);
 
 document.getElementById('spectateBtn').addEventListener('click', () => {
   if (!canSpectate()) return;
@@ -632,8 +652,8 @@ document.getElementById('spectateBtn').addEventListener('click', () => {
   show(hud);
 });
 
-augmentPickBtn.addEventListener('click', openAugmentPanel);
-closeAugmentBtn.addEventListener('click', closeAugmentPanel);
+bindMobileTap(augmentPickBtn, openAugmentPanel);
+bindMobileTap(closeAugmentBtn, closeAugmentPanel);
 
 window.addEventListener('resize', resize);
 canvas.addEventListener('mousemove', (e) => {

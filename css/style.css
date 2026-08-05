@@ -34,6 +34,8 @@ body {
   background: rgba(5, 8, 16, 0.82);
   backdrop-filter: blur(4px);
   z-index: 10;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .overlay.hidden {
@@ -114,6 +116,8 @@ h2 {
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
   margin: 0.25rem;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn.primary {
@@ -235,6 +239,9 @@ h2 {
 
 .augment-pick-btn {
   pointer-events: auto;
+  touch-action: manipulation;
+  position: relative;
+  z-index: 1;
   padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
   border-radius: 8px;
@@ -256,6 +263,9 @@ h2 {
 
 .hud-leave-btn {
   pointer-events: auto;
+  touch-action: manipulation;
+  position: relative;
+  z-index: 1;
   margin-left: auto;
   padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
@@ -283,7 +293,8 @@ h2 {
   right: 0;
   padding: 1rem 1.5rem;
   pointer-events: none;
-  z-index: 5;
+  z-index: 8;
+  transform: translateZ(0);
 }
 
 #hud.hidden {
@@ -295,6 +306,7 @@ h2 {
   gap: 1.5rem;
   align-items: center;
   flex-wrap: wrap;
+  pointer-events: auto;
 }
 
 .hud-item {
@@ -410,7 +422,7 @@ h2 {
 .touch-move-zone,
 .touch-aim-zone {
   position: absolute;
-  top: 0;
+  top: var(--hud-safe-top, 88px);
   bottom: 0;
   pointer-events: auto;
   touch-action: none;
