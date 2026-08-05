@@ -1,4 +1,4 @@
-import { CONFIG, getLevelMults } from './config.js';
+import { CONFIG, getLevelMults, getBossType, getBossTier } from './config.js';
 
 let nextEntityId = 1;
 
@@ -266,26 +266,153 @@ export class Boss extends Enemy {
   constructor(x, y, level) {
     super(x, y, 'tank', level);
     const lm = getLevelMults(level);
+    const tier = getBossTier(level);
+    const bossType = getBossType(level);
+    const tierScale = 1 + (tier - 1) * 0.55;
+
     this.typeKey = 'boss';
-    this.hp = CONFIG.BOSS.hp * (1 + (level - CONFIG.BOSS_LEVEL) * 0.15);
+    this.bossType = bossType;
+    this.bossName = bossType.name;
+    this.bossDesc = bossType.desc;
+    this.bossTier = tier;
+    this.pattern = bossType.pattern;
+    this.hp = CONFIG.BOSS.hp * bossType.hpMult * tierScale * lm.hp;
     this.maxHp = this.hp;
-    this.speed = CONFIG.BOSS.speed;
-    this.damage = CONFIG.BOSS.damage * lm.damage;
-    this.radius = CONFIG.BOSS.radius;
-    this.exp = CONFIG.BOSS.exp;
+    this.speed = CONFIG.BOSS.speed * bossType.speedMult * (1 + (tier - 1) * 0.04);
+    this.damage = CONFIG.BOSS.damage * bossType.damageMult * lm.damage * (1 + (tier - 1) * 0.1);
+    this.radius = CONFIG.BOSS.radius * bossType.radiusMult;
+    this.exp = Math.floor(CONFIG.BOSS.exp * tier);
     this.knockbackResist = CONFIG.BOSS.knockbackResist;
-    this.minionTimer = CONFIG.BOSS.minionInterval;
-    this.fireCooldown = 1;
+    this.minionTimer = CONFIG.BOSS.minionInterval * (bossType.pattern === 'summoner' ? 0.65 : 1);
+    this.minionInterval = this.minionTimer;
+    this.minionCount = bossType.minionCount;
+    this.fireCooldown = 0.6;
     this.pulse = 0;
     this.phase2 = false;
-    this.color = '#f42';
-    this.stroke = '#800';
+    this.spiralAngle = 0;
+    this.chargeTimer = 2;
+    this.color = bossType.color;
+    this.stroke = bossType.stroke;
+  }
+
+  fireFan(enemyBullets, count, spread, damageMult, speed = CONFIG.BOSS.bulletSpeed) {
+    const dx = this.targetX - this.x;
+    const dy = this.targetY - this.y;
+    const baseAngle = Math.atan2(dy, dx);
+    for (let i = 0; i < count; i++) {
+      const offset = (i - (count - 1) / 2) * spread;
+      enemyBullets.push(new EnemyBullet(
+        this.x, this.y, baseAngle + offset,
+        speed, this.damage * damageMult, 8
+      ));
+    }
+  }
+
+  fireRing(enemyBullets, count, damageMult, speed = CONFIG.BOSS.bulletSpeed * 0.85) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      enemyBullets.push(new EnemyBullet(
+        this.x, this.y, angle,
+        speed, this.damage * damageMult, 8
+      ));
+    }
+  }
+
+  moveToward(dt, keepDistance = 0) {
+    const dx = this.targetX - this.x;
+    const dy = this.targetY - this.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    let moveSpeed = this.speed;
+
+    if (this.pattern === 'charger' && this.chargeTimer <= 0) {
+      moveSpeed *= 2.2;
+      this.chargeTimer = 3.5;
+    }
+
+    if (keepDistance > 0) {
+      if (dist < keepDistance - 40) {
+        this.x -= (dx / dist) * moveSpeed * dt;
+        this.y -= (dy / dist) * moveSpeed * dt;
+        return;
+      }
+      if (dist > keepDistance + 60) {
+        this.x += (dx / dist) * moveSpeed * dt;
+        this.y += (dy / dist) * moveSpeed * dt;
+        return;
+      }
+      return;
+    }
+
+    this.x += (dx / dist) * moveSpeed * dt;
+    this.y += (dy / dist) * moveSpeed * dt;
+  }
+
+  attack(enemyBullets) {
+    const p2 = this.phase2 ? 1.25 : 1;
+
+    switch (this.pattern) {
+      case 'charger':
+        this.fireFan(enemyBullets, this.phase2 ? 7 : 5, 0.16, 0.55 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.1 * p2);
+        break;
+      case 'artillery':
+        this.fireFan(enemyBullets, this.phase2 ? 11 : 8, 0.12, 0.7 * p2, CONFIG.BOSS.bulletSpeed * 0.9);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 0.85 * p2);
+        break;
+      case 'summoner':
+        this.fireFan(enemyBullets, 3, 0.22, 0.5 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.2 * p2);
+        break;
+      case 'swift':
+        this.fireFan(enemyBullets, this.phase2 ? 4 : 3, 0.1, 0.45 * p2, CONFIG.BOSS.bulletSpeed * 1.15);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.6 * p2);
+        break;
+      case 'fortress':
+        if (this.phase2) this.fireRing(enemyBullets, 10, 0.55 * p2);
+        else this.fireFan(enemyBullets, 6, 0.2, 0.65 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * (this.phase2 ? 1.1 : 0.75) * p2);
+        break;
+      case 'commander':
+        this.fireFan(enemyBullets, this.phase2 ? 5 : 3, 0.08, 0.6 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.8 * p2);
+        break;
+      case 'spiral':
+        for (let i = 0; i < (this.phase2 ? 4 : 3); i++) {
+          enemyBullets.push(new EnemyBullet(
+            this.x, this.y, this.spiralAngle + i * (Math.PI * 2 / 3),
+            CONFIG.BOSS.bulletSpeed, this.damage * 0.5 * p2, 8
+          ));
+        }
+        this.spiralAngle += this.phase2 ? 0.55 : 0.4;
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 2.2 * p2);
+        break;
+      case 'splitter':
+        this.fireFan(enemyBullets, this.phase2 ? 8 : 5, 0.14, 0.6 * p2);
+        if (this.phase2) this.fireRing(enemyBullets, 8, 0.35 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * (this.phase2 ? 1.2 : 0.95) * p2);
+        break;
+      case 'dark':
+        this.fireFan(enemyBullets, this.phase2 ? 12 : 9, 0.08, 0.55 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.3 * p2);
+        break;
+      case 'final':
+        this.fireFan(enemyBullets, 7, 0.1, 0.65 * p2);
+        this.fireRing(enemyBullets, this.phase2 ? 12 : 6, 0.4 * p2);
+        this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * 1.4 * p2);
+        break;
+      default:
+        this.fireFan(enemyBullets, 5, 0.18, 0.6);
+        this.fireCooldown = 1 / CONFIG.BOSS.fireRate;
+    }
   }
 
   update(dt, targetX, targetY, enemyBullets) {
+    this.targetX = targetX;
+    this.targetY = targetY;
     this.pulse += dt * 3;
     this.minionTimer -= dt;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.chargeTimer = Math.max(0, this.chargeTimer - dt);
 
     this.x += this.knockbackX * dt;
     this.y += this.knockbackY * dt;
@@ -294,26 +421,18 @@ export class Boss extends Enemy {
 
     if (!this.phase2 && this.hp / this.maxHp < CONFIG.BOSS.phase2HpRatio) {
       this.phase2 = true;
-      this.speed *= 1.35;
+      this.speed *= 1.25;
     }
 
-    const dx = targetX - this.x;
-    const dy = targetY - this.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    this.x += (dx / dist) * this.speed * dt;
-    this.y += (dy / dist) * this.speed * dt;
+    const keepDistance = this.pattern === 'commander' ? 320
+      : this.pattern === 'artillery' ? 280
+      : this.pattern === 'summoner' ? 240
+      : 0;
+
+    this.moveToward(dt, keepDistance);
 
     if (this.fireCooldown <= 0) {
-      const baseAngle = Math.atan2(dy, dx);
-      const shots = this.phase2 ? 8 : 5;
-      for (let i = 0; i < shots; i++) {
-        const spread = (i - (shots - 1) / 2) * 0.18;
-        enemyBullets.push(new EnemyBullet(
-          this.x, this.y, baseAngle + spread,
-          CONFIG.BOSS.bulletSpeed, this.damage * 0.6, 8
-        ));
-      }
-      this.fireCooldown = 1 / (CONFIG.BOSS.fireRate * (this.phase2 ? 1.3 : 1));
+      this.attack(enemyBullets);
     }
   }
 
@@ -326,24 +445,27 @@ export class Boss extends Enemy {
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    grad.addColorStop(0, this.phase2 ? '#f08' : '#f84');
-    grad.addColorStop(1, '#820');
+    grad.addColorStop(0, this.phase2 ? '#fff' : this.color);
+    grad.addColorStop(1, this.stroke);
     ctx.fillStyle = this.flash > 0 ? '#fff' : grad;
     ctx.fill();
-    ctx.strokeStyle = '#f00';
+    ctx.strokeStyle = this.stroke;
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    const barW = 200;
+    const barW = Math.max(200, this.radius * 3.2);
     const ratio = this.hp / this.maxHp;
     ctx.fillStyle = '#222';
-    ctx.fillRect(-barW / 2, -r - 20, barW, 10);
+    ctx.fillRect(-barW / 2, -r - 24, barW, 10);
     ctx.fillStyle = '#f44';
-    ctx.fillRect(-barW / 2, -r - 20, barW * ratio, 10);
+    ctx.fillRect(-barW / 2, -r - 24, barW * ratio, 10);
     ctx.fillStyle = '#fff';
-    ctx.font = '12px sans-serif';
+    ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(this.phase2 ? 'BOSS Phase 2' : 'BOSS', 0, -r - 24);
+    ctx.fillText(`${this.bossName} · ${this.bossTier}/10`, 0, -r - 28);
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#ccc';
+    ctx.fillText(this.phase2 ? 'Phase 2' : 'BOSS', 0, -r - 14);
     ctx.restore();
   }
 }

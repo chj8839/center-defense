@@ -27,7 +27,7 @@
           <p>WASD — 이동 (배경 스크롤)</p>
           <p>적 종류 — 돌진병 / 속공병 / 중갑병 / 사수</p>
           <p>적 처치 → EXP 획득 → 레벨업 시 증강 선택</p>
-          <p>레벨 <span id="bossLevelHint">10</span> 도달 시 보스 등장!</p>
+          <p id="bossLevelHint">10레벨마다 보스 · Lv.100 클리어!</p>
           <p class="github-info"><strong>GitHub</strong> · <a href="https://github.com/chj8839/center-defense" target="_blank" rel="noopener noreferrer">chj8839/center-defense</a></p>
         </div>
       </div>
@@ -57,15 +57,16 @@
     <div id="bossWarning" class="overlay hidden">
       <div class="panel warning">
         <h2>⚠ 보스 등장!</h2>
-        <p>거대 적이 접근합니다...</p>
+        <p id="bossWarningName" style="font-size:1.2rem;color:#f88;margin:0.5rem 0">보스</p>
+        <p id="bossWarningDesc" class="subtitle" style="margin-bottom:0">거대 적이 접근합니다...</p>
       </div>
     </div>
 
     <!-- 승리 -->
     <div id="victory" class="overlay hidden">
       <div class="panel">
-        <h2>🎉 보스 처치!</h2>
-        <p>미션 클리어! 로비로 돌아갑니다.</p>
+        <h2>🎉 최종 보스 처치!</h2>
+        <p>레벨 100 클리어! 로비로 돌아갑니다.</p>
         <button id="returnLobbyBtn" class="btn primary">로비로</button>
       </div>
     </div>

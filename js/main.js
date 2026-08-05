@@ -1,4 +1,4 @@
-import { CONFIG, STATES, expForLevel, loadSave, writeSave } from './config.js';
+import { CONFIG, STATES, expForLevel, loadSave, writeSave, isBossLevel, getBossType } from './config.js';
 import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './augments.js';
 import {
   Player, spawnEnemy, spawnBoss, fireBullets,
@@ -25,8 +25,10 @@ const killText = document.getElementById('killText');
 const bestLevelEl = document.getElementById('bestLevel');
 const clearCountEl = document.getElementById('clearCount');
 const bossLevelHint = document.getElementById('bossLevelHint');
+const bossWarningName = document.getElementById('bossWarningName');
+const bossWarningDesc = document.getElementById('bossWarningDesc');
 
-bossLevelHint.textContent = CONFIG.BOSS_LEVEL;
+bossLevelHint.textContent = `${CONFIG.BOSS_INTERVAL}레벨마다 보스 · Lv.${CONFIG.MAX_LEVEL} 클리어!`;
 
 const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 const worldMouse = { x: 0, y: 0 };
@@ -36,7 +38,7 @@ const camera = { x: 0, y: 0 };
 let state = STATES.LOBBY;
 let w, h, cx, cy;
 let player, stats, enemies, bullets, enemyBullets, particles, orbits;
-let level, exp, kills, spawnTimer, bossRef;
+let level, exp, kills, spawnTimer, bossRef, nextBossLevel;
 let saveData = loadSave();
 let bossWarningTimer = 0;
 let floatingTexts = [];
@@ -103,6 +105,7 @@ function initGame() {
   orbits = [];
   spawnTimer = 0;
   bossRef = null;
+  nextBossLevel = CONFIG.BOSS_INTERVAL;
   floatingTexts = [];
   updateHud();
   updateAugmentList();
@@ -131,6 +134,7 @@ function addExp(amount) {
 }
 
 function levelUp() {
+  if (level >= CONFIG.MAX_LEVEL) return;
   level++;
   showLevelUpChoices();
 }
@@ -159,14 +163,21 @@ function pickAugment(aug) {
   updateAugmentList();
   updateHud();
 
-  if (level >= CONFIG.BOSS_LEVEL && !bossRef) {
+  if (shouldTriggerBoss()) {
     triggerBoss();
   } else {
     setState(bossRef ? STATES.BOSS : STATES.PLAYING);
   }
 }
 
+function shouldTriggerBoss() {
+  return isBossLevel(level) && level >= nextBossLevel && !bossRef;
+}
+
 function triggerBoss() {
+  const bossType = getBossType(level);
+  if (bossWarningName) bossWarningName.textContent = bossType.name;
+  if (bossWarningDesc) bossWarningDesc.textContent = bossType.desc;
   setState(STATES.BOSS_WARNING);
   bossWarningTimer = 2.5;
   enemies = enemies.filter((e) => !e.dead);
@@ -267,8 +278,9 @@ function updatePlaying(dt) {
   if (bossRef && !bossRef.dead) {
     bossRef.minionTimer -= dt;
     if (bossRef.minionTimer <= 0) {
-      for (let i = 0; i < 3; i++) enemies.push(spawnEnemy(player, w, h, level));
-      bossRef.minionTimer = CONFIG.BOSS.minionInterval;
+      const count = bossRef.minionCount || 3;
+      for (let i = 0; i < count; i++) enemies.push(spawnEnemy(player, w, h, level));
+      bossRef.minionTimer = bossRef.minionInterval;
     }
   }
 
@@ -366,8 +378,14 @@ function onEnemyKill(enemy) {
   addFloatingText(enemy.x, enemy.y, `+${Math.floor(enemy.exp * stats.expMult)} EXP`, '#8cf');
 
   if (bossRef && enemy === bossRef) {
+    const clearedLevel = level;
     bossRef = null;
-    onVictory();
+    nextBossLevel += CONFIG.BOSS_INTERVAL;
+    if (clearedLevel >= CONFIG.MAX_LEVEL) {
+      onVictory();
+    } else {
+      setState(STATES.PLAYING);
+    }
   }
 }
 
@@ -408,7 +426,7 @@ function draw() {
     ctx.fillStyle = '#f66';
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('보스전', w / 2, 40);
+    ctx.fillText(`${bossRef.bossName} (${bossRef.bossTier}/10)`, w / 2, 40);
   }
 }
 
