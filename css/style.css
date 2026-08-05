@@ -138,6 +138,21 @@ h2 {
   color: #889;
 }
 
+.help a {
+  color: #8cf;
+  text-decoration: none;
+}
+
+.help a:hover {
+  text-decoration: underline;
+}
+
+.help .github-info {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 #hud {
   position: absolute;
   top: 0;

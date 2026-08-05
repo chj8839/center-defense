@@ -4,15 +4,30 @@
 
 ## 실행 방법
 
-로컬 서버로 실행 (ES 모듈 사용):
+**온라인 플레이**
+
+[https://center-defense.vercel.app/](https://center-defense.vercel.app/) 에서 바로 플레이할 수 있습니다.
+
+**로컬 실행**
+
+ES 모듈을 사용하므로 HTML 파일을 직접 열면 실행되지 않습니다. 로컬 서버로 실행하세요.
+
+**Windows (간편)**
+
+1. `start.bat` 더블클릭
+2. 브라우저에서 `http://localhost:3456` 접속
+
+**터미널**
 
 ```bash
 npx serve .
 ```
 
-브라우저에서 `http://localhost:3000` 접속
+브라우저에서 표시된 주소(기본 `http://localhost:3000`) 접속
 
-또는 VS Code Live Server 확장으로 `index.html` 열기
+**기타**
+
+- VS Code Live Server 확장으로 `index.html` 열기
 
 ## 조작
 
