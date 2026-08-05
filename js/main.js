@@ -1,5 +1,6 @@
 import { CONFIG, STATES, expForLevel, loadSave, writeSave, isBossLevel, getBossType } from './config.js';
 import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './augments.js';
+import { touchControls } from './touchControls.js';
 import {
   Player, spawnEnemy, spawnBoss, fireBullets,
   spawnParticles, OrbitShield,
@@ -68,6 +69,9 @@ function setState(newState) {
   hide(bossWarning);
   hide(victory);
   hide(gameOver);
+
+  const touchActive = newState === STATES.PLAYING || newState === STATES.BOSS;
+  touchControls.setActive(touchActive);
 
   switch (newState) {
     case STATES.LOBBY: show(lobby); refreshLobby(); break;
@@ -246,8 +250,22 @@ function updateCamera() {
   updateWorldMouse();
 }
 
+function getEffectiveKeys() {
+  const k = new Set(keys);
+  const t = touchControls.getKeys();
+  if (t.up) k.add('w');
+  if (t.down) k.add('s');
+  if (t.left) k.add('a');
+  if (t.right) k.add('d');
+  return k;
+}
+
 function updatePlaying(dt) {
-  player.update(dt, worldMouse, stats, keys);
+  const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
+  worldMouse.x = aim.x - cx + camera.x;
+  worldMouse.y = aim.y - cy + camera.y;
+
+  player.update(dt, worldMouse, stats, getEffectiveKeys());
   updateCamera();
   player.contactCooldown = Math.max(0, (player.contactCooldown || 0) - dt);
 
@@ -405,12 +423,15 @@ function draw() {
   orbits.forEach((o) => o.draw(ctx, camera, cx, cy));
   player.draw(ctx, cx, cy);
 
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(mouse.x, mouse.y);
-  ctx.strokeStyle = 'rgba(136, 204, 255, 0.25)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  if (state === STATES.PLAYING || state === STATES.BOSS) {
+    const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(aim.x, aim.y);
+    ctx.strokeStyle = 'rgba(136, 204, 255, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
 
   floatingTexts.forEach((t) => {
     const s = worldToScreen(t.x, t.y, camera, cx, cy);

@@ -64,14 +64,14 @@ export class Player {
     return true;
   }
 
-  draw(ctx, cx, cy) {
+  draw(ctx, cx, cy, color = '#3af') {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(this.angle);
 
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.invincible > 0 && Math.floor(Date.now() / 80) % 2 ? '#fff' : '#3af';
+    ctx.fillStyle = this.invincible > 0 && Math.floor(Date.now() / 80) % 2 ? '#fff' : color;
     ctx.fill();
     ctx.strokeStyle = '#8cf';
     ctx.lineWidth = 2;
@@ -555,6 +555,72 @@ function pickEnemyType(level) {
     if (roll <= 0) return t.id;
   }
   return 'melee';
+}
+
+export function drawRemotePlayer(ctx, x, y, angle, color, name, camera, cx, cy) {
+  const s = worldToScreen(x, y, camera, cx, cy);
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.arc(0, 0, CONFIG.PLAYER.radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#bdf';
+  ctx.fillRect(CONFIG.PLAYER.radius - 2, -4, 14, 8);
+  ctx.restore();
+  if (name) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(name, s.x, s.y - CONFIG.PLAYER.radius - 8);
+  }
+}
+
+export function drawEnemySnapshot(ctx, e, camera, cx, cy) {
+  const s = worldToScreen(e.x, e.y, camera, cx, cy);
+  if (e.typeKey === 'boss') {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    const r = e.radius;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = e.color;
+    ctx.fill();
+    ctx.strokeStyle = e.stroke || '#f00';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    const barW = Math.max(200, r * 3.2);
+    const ratio = e.hp / e.maxHp;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-barW / 2, -r - 24, barW, 10);
+    ctx.fillStyle = '#f44';
+    ctx.fillRect(-barW / 2, -r - 24, barW * ratio, 10);
+    if (e.bossName) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${e.bossName} · ${e.bossTier}/10`, 0, -r - 28);
+    }
+    ctx.restore();
+    return;
+  }
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, e.radius, 0, Math.PI * 2);
+  ctx.fillStyle = e.color;
+  ctx.fill();
+  ctx.strokeStyle = e.stroke || '#000';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  const barW = e.radius * 2;
+  const ratio = e.hp / e.maxHp;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(s.x - barW / 2, s.y - e.radius - 8, barW, 4);
+  ctx.fillStyle = e.typeKey === 'ranged' ? '#c8f' : '#4f4';
+  ctx.fillRect(s.x - barW / 2, s.y - e.radius - 8, barW * ratio, 4);
 }
 
 export function spawnEnemy(player, w, h, level) {

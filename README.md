@@ -27,10 +27,45 @@ npx serve .
 
 - VS Code Live Server 확장으로 `index.html` 열기
 
+## 멀티플레이 (1~4인 온라인)
+
+- **개인별** EXP / 레벨 / 증강
+- **개인별** 카메라 (각자 화면)
+- 한 명 사망 시 **해당 플레이어만** 게임 오버 (다른 플레이어는 계속)
+- Railway WebSocket 서버 사용
+
+### 서버 실행 (로컬)
+
+```bash
+cd server
+npm install
+npm start
+```
+
+기본 포트: `8080`
+
+### 클라이언트
+
+1. 로컬 서버로 게임 실행 (`npx serve .`)
+2. [multi.html](multi.html) 접속
+3. 닉네임 입력 → 방 만들기 또는 코드로 참가
+4. 방장이 **게임 시작**
+
+### Railway 배포
+
+1. Railway에서 새 프로젝트 생성
+2. Root Directory: `server`
+3. Deploy 후 생성된 URL 확인 (예: `center-defense-server-production.up.railway.app`)
+4. `js/network-config.js`의 `WS_URL`을 `wss://YOUR-URL` 로 수정
+5. Vercel(클라이언트) 재배포
+
+로컬 테스트 시 서버 URL: `ws://localhost:8080` (자동)
+
 ## 조작
 
 - **마우스** — 조준 & 자동 사격
 - **WASD / 방향키** — 이동 (카메라가 플레이어를 따라감)
+- **모바일 (멀티터치)** — 화면 **왼쪽** 조이스틱으로 이동, **오른쪽** 터치로 조준 (자동 사격)
 
 ## 게임 흐름
 

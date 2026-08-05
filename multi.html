@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>센터 디펜스 — 멀티플레이</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- 멀티 로비 -->
+    <div id="multiLobby" class="overlay">
+      <div class="panel">
+        <h1>멀티플레이</h1>
+        <p class="subtitle">1~4인 온라인 · 모바일: 왼쪽 이동 · 오른쪽 조준</p>
+        <div id="multiLobbyActions">
+          <input id="playerName" class="input-field" type="text" maxlength="12" placeholder="닉네임" value="">
+          <div class="multi-actions">
+            <button id="createRoomBtn" class="btn primary">방 만들기</button>
+            <div class="join-row">
+              <input id="roomCode" class="input-field code" type="text" maxlength="4" placeholder="코드">
+              <button id="joinRoomBtn" class="btn">참가</button>
+            </div>
+          </div>
+        </div>
+        <div id="roomInfo" class="stats-box hidden">
+          <h3>방 코드: <span id="roomCodeDisplay">----</span></h3>
+          <ul id="playerList" class="player-list"></ul>
+          <button id="startMultiBtn" class="btn primary hidden">게임 시작</button>
+          <button id="leaveRoomBtn" class="btn">나가기</button>
+        </div>
+        <p id="multiStatus" class="help"></p>
+        <a href="index.html" class="btn" style="margin-top:1rem;display:inline-block;text-decoration:none">← 솔로 모드</a>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-top">
+        <div class="hud-item">HP <div class="bar"><div id="hpBar" class="bar-fill hp"></div></div></div>
+        <div class="hud-item">EXP <div class="bar"><div id="expBar" class="bar-fill exp"></div></div></div>
+        <div class="hud-item">LV <span id="levelText">1</span></div>
+        <div class="hud-item">킬 <span id="killText">0</span></div>
+      </div>
+      <div id="augmentList" class="augment-list"></div>
+      <div id="teamHud" class="team-hud"></div>
+    </div>
+
+    <!-- 레벨업 -->
+    <div id="levelUp" class="overlay hidden">
+      <div class="panel wide">
+        <h2>레벨업!</h2>
+        <p class="subtitle">증강을 하나 선택하세요</p>
+        <div id="augmentChoices" class="choices"></div>
+      </div>
+    </div>
+
+    <!-- 보스 경고 -->
+    <div id="bossWarning" class="overlay hidden">
+      <div class="panel warning">
+        <h2>⚠ 보스 등장!</h2>
+        <p id="bossWarningName" style="font-size:1.2rem;color:#f88;margin:0.5rem 0">보스</p>
+        <p id="bossWarningDesc" class="subtitle" style="margin-bottom:0">거대 적이 접근합니다...</p>
+      </div>
+    </div>
+
+    <!-- 승리 -->
+    <div id="victory" class="overlay hidden">
+      <div class="panel">
+        <h2>🎉 최종 보스 처치!</h2>
+        <p>레벨 100 클리어!</p>
+        <button id="returnLobbyBtn" class="btn primary">로비로</button>
+      </div>
+    </div>
+
+    <!-- 게임 오버 (본인만) -->
+    <div id="gameOver" class="overlay hidden">
+      <div class="panel">
+        <h2>게임 오버</h2>
+        <p>레벨 <span id="finalLevel">1</span> · 킬 <span id="finalKills">0</span></p>
+        <p class="subtitle">다른 플레이어는 계속 전투 중입니다</p>
+        <button id="spectateBtn" class="btn primary">관전</button>
+        <button id="lobbyBtn" class="btn">로비로</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/multi-main.js"></script>
+</body>
+</html>
