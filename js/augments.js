@@ -5,7 +5,7 @@ export const AUGMENTS = [
     icon: '⚔',
     desc: '탄환 데미지 +20%',
     apply: (s) => { s.damageMult *= 1.2; },
-    maxTier: 5,
+    maxTier: 10,
   },
   {
     id: 'fireRate',
@@ -13,7 +13,7 @@ export const AUGMENTS = [
     icon: '🔥',
     desc: '발사 속도 +15%',
     apply: (s) => { s.fireRateMult *= 1.15; },
-    maxTier: 5,
+    maxTier: 10,
   },
   {
     id: 'bulletSpeed',
@@ -21,7 +21,7 @@ export const AUGMENTS = [
     icon: '💨',
     desc: '탄환 속도 +25%',
     apply: (s) => { s.bulletSpeedMult *= 1.25; },
-    maxTier: 4,
+    maxTier: 8,
   },
   {
     id: 'multishot',
@@ -29,7 +29,7 @@ export const AUGMENTS = [
     icon: '🎯',
     desc: '추가 탄환 +1',
     apply: (s) => { s.bulletCount += 1; },
-    maxTier: 3,
+    maxTier: 6,
   },
   {
     id: 'pierce',
@@ -37,7 +37,7 @@ export const AUGMENTS = [
     icon: '➡',
     desc: '탄환 관통 +1 (모든 탄환 동일 적용)',
     apply: (s) => { s.pierce += 1; },
-    maxTier: 3,
+    maxTier: 6,
   },
   {
     id: 'crit',
@@ -45,7 +45,7 @@ export const AUGMENTS = [
     icon: '💥',
     desc: '치명타 확률 +8%, 배율 +0.3',
     apply: (s) => { s.critChance += 0.08; s.critMult += 0.3; },
-    maxTier: 4,
+    maxTier: 8,
   },
   {
     id: 'maxHp',
@@ -57,7 +57,7 @@ export const AUGMENTS = [
       player.maxHp += 25;
       player.hp = Math.min(player.hp + 25, player.maxHp);
     },
-    maxTier: 5,
+    maxTier: 10,
   },
   {
     id: 'regen',
@@ -65,7 +65,7 @@ export const AUGMENTS = [
     icon: '💚',
     desc: '초당 HP 회복 +2',
     apply: (s) => { s.regen += 2; },
-    maxTier: 4,
+    maxTier: 8,
   },
   {
     id: 'expGain',
@@ -73,7 +73,7 @@ export const AUGMENTS = [
     icon: '✨',
     desc: 'EXP 획득량 +20%',
     apply: (s) => { s.expMult *= 1.2; },
-    maxTier: 4,
+    maxTier: 8,
   },
   {
     id: 'moveSpeed',
@@ -81,7 +81,7 @@ export const AUGMENTS = [
     icon: '👟',
     desc: '이동 속도 +30%',
     apply: (s) => { s.moveSpeedMult *= 1.3; },
-    maxTier: 4,
+    maxTier: 8,
   },
   {
     id: 'knockback',
@@ -89,7 +89,7 @@ export const AUGMENTS = [
     icon: '💫',
     desc: '적 넉백 강도 +40%',
     apply: (s) => { s.knockbackMult *= 1.4; },
-    maxTier: 3,
+    maxTier: 6,
   },
   {
     id: 'spread',
@@ -100,7 +100,7 @@ export const AUGMENTS = [
       s.bulletCount += 2;
       s.damageMult *= 0.9;
     },
-    maxTier: 2,
+    maxTier: 5,
   },
   {
     id: 'orbit',
@@ -108,7 +108,7 @@ export const AUGMENTS = [
     icon: '🔮',
     desc: '회전 보호구 +1',
     apply: (s) => { s.orbitCount += 1; },
-    maxTier: 3,
+    maxTier: 6,
   },
 ];
 
