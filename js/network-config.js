@@ -7,5 +7,5 @@ export const WS_URL = (() => {
     return 'ws://localhost:8080';
   }
   // Railway 서버 URL (배포 후 수정)
-  return 'wss://center-defense-server-production.up.railway.app';
+  return 'wss://center-defense-production.up.railway.app';
 })();
