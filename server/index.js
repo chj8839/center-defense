@@ -42,7 +42,27 @@ function broadcastLobby(room) {
   }
 }
 
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
 function serveStatic(req, res) {
+  applyCors(req, res);
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   let urlPath = req.url?.split('?')[0] || '/';
   if (urlPath === '/') urlPath = '/index.html';
   if (urlPath === '/health') {

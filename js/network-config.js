@@ -18,10 +18,17 @@ export const WS_URL = (() => {
   return `${proto}//${location.host}`;
 })();
 
+function wsToHttp(url) {
+  return url.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+}
+
 export async function verifyServer(baseUrl) {
   try {
-    const httpUrl = baseUrl.replace(/^ws/, 'http');
-    const res = await fetch(`${httpUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    const httpUrl = wsToHttp(baseUrl);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${httpUrl}/health`, { signal: controller.signal, mode: 'cors' });
+    clearTimeout(timer);
     const data = await res.json();
     return data?.ok && data?.service === 'center-defense-server';
   } catch {
