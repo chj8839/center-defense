@@ -1,3 +1,12 @@
+/**
+ * Center Defense 멀티플레이 게임 룸 로직
+ *
+ * GameRoom: 단일 방의 플레이어·적·탄환 시뮬레이션 및 상태 직렬화
+ * RoomManager: 방 코드 생성/조회, 플레이어-방 매핑, 전역 방 목록 관리
+ *
+ * 클라이언트 entities/config/augments 모듈을 서버에서 재사용하여
+ * 싱글플레이와 동일한 전투·증강 규칙을 적용합니다.
+ */
 import { CONFIG, expForLevel, isBossLevel, getBossType } from '../js/config.js';
 import { createStats, getRandomChoices, applyAugment, AUGMENTS } from '../js/augments.js';
 import {
@@ -6,11 +15,22 @@ import {
   getPointBlankHits, getMeleeHits,
 } from '../js/entities.js';
 
+/** 플레이어 슬롯별 표시 색상 (최대 4인) */
 const PLAYER_COLORS = ['#3af', '#f84', '#4f4', '#fc4'];
+
+/** 게임 시뮬레이션 틱률(Hz) — startGame setInterval 및 서버 브로드캐스트 기준 */
 const TICK_RATE = 20;
+
+/** 적 스폰·시야 계산용 가상 뷰포트 너비 */
 const VIEW_W = 1280;
+
+/** 적 스폰·시야 계산용 가상 뷰포트 높이 */
 const VIEW_H = 720;
 
+/**
+ * 4자리 대문자+숫자 방 참가 코드 생성 (혼동 문자 I/O/0/1 제외)
+ * @returns {string}
+ */
 function randCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
@@ -18,6 +38,12 @@ function randCode() {
   return s;
 }
 
+/**
+ * 적이 추적할 가장 가까운 생존 플레이어 래퍼 반환
+ * @param {import('../js/entities.js').Enemy} enemy
+ * @param {Map<string, object>} players
+ * @returns {object|null} players Map 값(플레이어 래퍼) 또는 null
+ */
 function findNearestAlive(enemy, players) {
   let best = null;
   let bestDist = Infinity;
@@ -32,6 +58,11 @@ function findNearestAlive(enemy, players) {
   return best;
 }
 
+/**
+ * 방 내 생존 플레이어 중 최고 레벨 — 적 스폰 난이도·스폰 간격에 사용
+ * @param {Map<string, object>} players
+ * @returns {number}
+ */
 function getWorldLevel(players) {
   let max = 1;
   for (const p of players.values()) {
@@ -40,6 +71,11 @@ function getWorldLevel(players) {
   return max;
 }
 
+/**
+ * 생존 플레이어 위치의 무게중심 — 일반 적 스폰 앵커 좌표
+ * @param {Map<string, object>} players
+ * @returns {{ x: number, y: number }}
+ */
 function getSpawnAnchor(players) {
   const alive = [...players.values()].filter((p) => p.alive);
   if (!alive.length) return { x: 0, y: 0 };
@@ -49,6 +85,10 @@ function getSpawnAnchor(players) {
 }
 
 export class GameRoom {
+  /**
+   * 새 게임 방 인스턴스 생성
+   * @param {string} hostId 방 호스트 플레이어 UUID
+   */
   constructor(hostId) {
     this.code = randCode();
     this.hostId = hostId;
@@ -63,6 +103,12 @@ export class GameRoom {
     this.interval = null;
   }
 
+  /**
+   * 방에 플레이어 추가 (최대 4명)
+   * @param {string} id 플레이어 UUID
+   * @param {string} name 표시 이름 (12자 제한)
+   * @returns {boolean} 추가 성공 여부
+   */
   addPlayer(id, name) {
     if (this.players.size >= 4) return false;
     const slot = this.players.size;
@@ -90,6 +136,11 @@ export class GameRoom {
     return true;
   }
 
+  /**
+   * 플레이어 제거 및 호스트 이양
+   * @param {string} id
+   * @returns {'empty'|'ok'} 방이 비었으면 'empty'
+   */
   removePlayer(id) {
     this.players.delete(id);
     if (this.players.size === 0) return 'empty';
@@ -99,6 +150,10 @@ export class GameRoom {
     return 'ok';
   }
 
+  /**
+   * 대기 상태에서 게임 시작 — 플레이어·월드 초기화 후 TICK_RATE 시뮬레이션 루프 가동
+   * @returns {boolean} 시작 성공 여부
+   */
   startGame() {
     if (this.state !== 'waiting' || this.players.size < 1) return false;
     this.state = 'playing';
@@ -125,12 +180,18 @@ export class GameRoom {
     return true;
   }
 
+  /**
+   * 시뮬레이션 인터벌 중지 및 waiting 상태로 복귀 (방 폐기 전 정리용)
+   */
   stop() {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
     this.state = 'waiting';
   }
 
+  /**
+   * 라운드 종료 — playing→waiting, 월드·플레이어 전투 상태 리셋, onRoundEnd 콜백 호출
+   */
   endRound() {
     if (this.state !== 'playing') return;
     if (this.interval) clearInterval(this.interval);
@@ -151,12 +212,21 @@ export class GameRoom {
     this.onRoundEnd?.(this);
   }
 
+  /**
+   * 아직 전투 중인 플레이어가 있는지 (playing/boss/bossWarning)
+   * @returns {boolean}
+   */
   hasActivePlayers() {
     return [...this.players.values()].some(
       (p) => p.alive && (p.gameState === 'playing' || p.gameState === 'boss' || p.gameState === 'bossWarning'),
     );
   }
 
+  /**
+   * 플레이어 기권(사망 처리) — 탄환 제거, 활성 플레이어 없으면 endRound
+   * @param {string} id
+   * @returns {boolean}
+   */
   forfeitPlayer(id) {
     const p = this.players.get(id);
     if (!p || this.state !== 'playing') return false;
@@ -174,12 +244,22 @@ export class GameRoom {
     return true;
   }
 
+  /**
+   * 클라이언트 입력을 플레이어 input 객체에 병합
+   * @param {string} id
+   * @param {object} input 이동·angle 등
+   */
   setInput(id, input) {
     const p = this.players.get(id);
     if (!p) return;
     p.input = { ...p.input, ...input };
   }
 
+  /**
+   * 레벨업 증강 선택 처리 — 스탯 적용, 보스 경고/연속 레벨업 분기
+   * @param {string} id
+   * @param {string} augmentId
+   */
   pickAugment(id, augmentId) {
     const p = this.players.get(id);
     if (!p?.augmentQueue?.length) return;
@@ -208,6 +288,10 @@ export class GameRoom {
     this.tryLevelUp(p);
   }
 
+  /**
+   * 레벨 상승 및 증강 3택1 큐에 추가 (선택지 없으면 tryLevelUp 재귀)
+   * @param {object} p 플레이어 래퍼
+   */
   levelUpPlayer(p) {
     if (p.level >= CONFIG.MAX_LEVEL) return;
     p.level++;
@@ -225,6 +309,10 @@ export class GameRoom {
     p.augmentQueue.push({ level: p.level, choices });
   }
 
+  /**
+   * 경험치가 충분하면 levelUpPlayer 호출 (보스 경고·게임오버·승리 중 제외)
+   * @param {object} p
+   */
   tryLevelUp(p) {
     if (!p.alive) return;
     if (p.gameState === 'bossWarning' || p.gameState === 'gameOver' || p.gameState === 'victory') return;
@@ -234,18 +322,31 @@ export class GameRoom {
     }
   }
 
+  /**
+   * 적 처치 등으로 경험치 추가 후 레벨업 시도
+   * @param {object} p
+   * @param {number} amount 기본 경험치량
+   */
   addExp(p, amount) {
     if (p.gameState === 'bossWarning') return;
     p.exp += Math.floor(amount * p.stats.expMult * CONFIG.PLAYER.baseExpMult);
     this.tryLevelUp(p);
   }
 
+  /**
+   * 월드 레벨에 따른 일반 적 스폰 간격(초) — 레벨↑면 간격 단축
+   * @returns {number}
+   */
   getSpawnInterval() {
     const worldLevel = getWorldLevel(this.players);
     const reduction = Math.min(worldLevel * 0.06, CONFIG.ENEMY.spawnInterval - CONFIG.ENEMY.spawnIntervalMin);
     return Math.max(CONFIG.ENEMY.spawnIntervalMin, CONFIG.ENEMY.spawnInterval - reduction);
   }
 
+  /**
+   * 보스 경고 종료 후 해당 플레이어 위치에 보스 스폰
+   * @param {object} p
+   */
   spawnBossFor(p) {
     const boss = spawnBoss(p.player, p.level);
     this.enemies.push(boss);
@@ -254,6 +355,11 @@ export class GameRoom {
     p.pendingBoss = null;
   }
 
+  /**
+   * 적 처치 시 킬·경험치·보스 클리어/승리 상태 갱신
+   * @param {object} killer 플레이어 래퍼
+   * @param {import('../js/entities.js').Enemy} enemy
+   */
   onEnemyKill(killer, enemy) {
     if (!killer?.alive) return;
     killer.kills++;
@@ -270,11 +376,21 @@ export class GameRoom {
     }
   }
 
+  /**
+   * 피격·사망 처리를 일시 중단해야 하는 플레이어 상태인지
+   * @param {object} p
+   * @returns {boolean}
+   */
   isPausedPlayer(p) {
     return p.gameState === 'bossWarning'
       || p.gameState === 'gameOver' || p.gameState === 'victory';
   }
 
+  /**
+   * 단일 플레이어 틱 — 이동·사격·근접/궤도 데미지·보스 경고 타이머
+   * @param {object} p
+   * @param {number} dt 델타 시간(초)
+   */
   updatePlayer(p, dt) {
     if (!p.alive) return;
     if (p.gameState === 'gameOver' || p.gameState === 'victory') return;
@@ -336,11 +452,22 @@ export class GameRoom {
     }
   }
 
+  /**
+   * 적에게 데미지 적용 및 사망 시 onEnemyKill
+   * @param {import('../js/entities.js').Enemy} enemy
+   * @param {number} amount
+   * @param {number} angle
+   * @param {number} knockback
+   * @param {object} killer
+   */
   applyHit(enemy, amount, angle, knockback, killer) {
     enemy.takeDamage(amount, angle, knockback);
     if (enemy.dead) this.onEnemyKill(killer, enemy);
   }
 
+  /**
+   * 방 전체 시뮬레이션 한 틱 — 플레이어·스폰·보스 미니언·탄환·충돌·라운드 종료
+   */
   update() {
     const now = Date.now();
     const dt = Math.min((now - this.lastTick) / 1000, 0.05);
@@ -361,6 +488,7 @@ export class GameRoom {
       (p) => p.alive && (p.gameState === 'playing' || p.gameState === 'boss')
     );
 
+    // 일반 적 스폰: 생존+playing/boss 플레이어가 있을 때 spawnTimer 기준, 앵커·월드레벨 반영
     if (anyPlaying) {
       this.spawnTimer -= dt;
       const maxEnemies = CONFIG.ENEMY.maxOnScreen + this.players.size * 10;
@@ -370,6 +498,7 @@ export class GameRoom {
       }
     }
 
+    // 보스 미니언 스폰: 각 플레이어의 보스가 minionTimer마다 추가 적 생성
     for (const p of this.players.values()) {
       if (!p.alive || !p.bossEnemyId) continue;
       const boss = this.enemies.find((e) => e.id === p.bossEnemyId);
@@ -473,6 +602,10 @@ export class GameRoom {
     }
   }
 
+  /**
+   * 로비 UI용 방 요약 (코드, 호스트, 상태, 플레이어 목록)
+   * @returns {object}
+   */
   getLobbyInfo() {
     return {
       code: this.code,
@@ -487,6 +620,11 @@ export class GameRoom {
     };
   }
 
+  /**
+   * 특정 플레이어에게 보낼 전체 게임 상태 스냅샷 (증강 선택은 본인만)
+   * @param {string} id 수신 플레이어 UUID
+   * @returns {object}
+   */
   getStateFor(id) {
     const me = this.players.get(id);
     return {
@@ -548,11 +686,18 @@ export class GameRoom {
 }
 
 export class RoomManager {
+  /** 방 코드 Map과 플레이어→방 코드 역인덱스 초기화 */
   constructor() {
     this.rooms = new Map();
     this.playerRoom = new Map();
   }
 
+  /**
+   * 새 방 생성 및 생성자를 첫 플레이어·호스트로 등록
+   * @param {string} playerId
+   * @param {string} name
+   * @returns {GameRoom}
+   */
   createRoom(playerId, name) {
     const room = new GameRoom(playerId);
     room.addPlayer(playerId, name);
@@ -561,6 +706,13 @@ export class RoomManager {
     return room;
   }
 
+  /**
+   * 코드로 대기 중인 방에 참가
+   * @param {string} playerId
+   * @param {string} code
+   * @param {string} name
+   * @returns {GameRoom|null}
+   */
   joinRoom(playerId, code, name) {
     const room = this.rooms.get(code.toUpperCase());
     if (!room || room.state !== 'waiting') return null;
@@ -569,11 +721,21 @@ export class RoomManager {
     return room;
   }
 
+  /**
+   * 플레이어가 속한 GameRoom 조회
+   * @param {string} playerId
+   * @returns {GameRoom|null}
+   */
   getRoomByPlayer(playerId) {
     const code = this.playerRoom.get(playerId);
     return code ? this.rooms.get(code) : null;
   }
 
+  /**
+   * 플레이어 방 퇴장 — 빈 방이면 stop 후 삭제, playing 중 전원 비활성 시 endRound
+   * @param {string} playerId
+   * @returns {GameRoom|null} 남은 방 또는 null
+   */
   leave(playerId) {
     const code = this.playerRoom.get(playerId);
     if (!code) return null;
@@ -595,6 +757,10 @@ export class RoomManager {
     return room;
   }
 
+  /**
+   * 현재 playing 상태인 모든 방 목록 (서버 20Hz 상태 브로드캐스트용)
+   * @returns {GameRoom[]}
+   */
   getPlayingRooms() {
     return [...this.rooms.values()].filter((r) => r.state === 'playing');
   }

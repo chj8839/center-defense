@@ -1,16 +1,31 @@
+/**
+ * entities.js — 게임 엔티티(개체) 클래스 및 관련 유틸리티
+ *
+ * 이 파일은 플레이어, 총알, 적, 보스, 궤도 방패, 파티클 등
+ * 게임 월드에 존재하는 모든 개체의 정의와 동작을 담당합니다.
+ * 각 클래스는 위치·체력·이동·공격·렌더링 로직을 캡슐화하며,
+ * 하단의 export 함수들은 스폰, 충돌 판정, 배경 그리기 등
+ * 게임 루프에서 호출되는 헬퍼 역할을 합니다.
+ */
 import { CONFIG, getLevelMults, getBossType, getBossTier } from './config.js';
 
+/** 다음에 생성될 엔티티에 부여할 고유 ID (총알·적 등에서 순차 증가) */
 let nextEntityId = 1;
 
+/** 월드 좌표를 화면(캔버스) 좌표로 변환 */
 export function worldToScreen(wx, wy, camera, cx, cy) {
   return { x: wx - camera.x + cx, y: wy - camera.y + cy };
 }
 
+/** 화면(캔버스) 좌표를 월드 좌표로 변환 */
 export function screenToWorld(sx, sy, camera, cx, cy) {
   return { x: sx - cx + camera.x, y: sy - cy + camera.y };
 }
 
+/** 플레이어 캐릭터 — 이동, 조준, 발사 쿨다운, 피격·무적 처리 */
 export class Player {
+  /** @param {number} x - 월드 X 좌표 */
+  /** @param {number} y - 월드 Y 좌표 */
   constructor(x, y) {
     this.x = x;
     this.y = y;
@@ -23,6 +38,7 @@ export class Player {
     this.contactCooldown = 0;
   }
 
+  /** WASD/방향키 이동, 마우스 방향 조준, 무적·재생 처리 */
   update(dt, worldMouse, stats, keys) {
     let mx = 0, my = 0;
     if (keys.has('w') || keys.has('arrowup')) my -= 1;
@@ -47,6 +63,7 @@ export class Player {
     }
   }
 
+  /** 발사 쿨다운이 충족되면 true 반환 및 쿨다운 재설정 */
   canFire(dt, stats) {
     this.fireCooldown -= dt;
     const rate = CONFIG.PLAYER.baseFireRate * stats.fireRateMult;
@@ -57,6 +74,7 @@ export class Player {
     return false;
   }
 
+  /** 피해 적용 — 무적 중이면 false, 성공 시 짧은 무적 시간 부여 */
   takeDamage(amount) {
     if (this.invincible > 0) return false;
     this.hp -= amount;
@@ -64,6 +82,7 @@ export class Player {
     return true;
   }
 
+  /** 플레이어 원형 몸체와 총구 방향 표시 (로컬 좌표 기준) */
   draw(ctx, cx, cy, color = '#3af') {
     ctx.save();
     ctx.translate(cx, cy);
@@ -83,6 +102,7 @@ export class Player {
   }
 }
 
+/** 플레이어가 발사하는 총알 — 관통·크리티컬·넉백 지원 */
 export class Bullet {
   constructor(x, y, angle, stats) {
     this.id = nextEntityId++;
@@ -100,20 +120,24 @@ export class Bullet {
     this.dead = false;
   }
 
+  /** 발사 각도 방향으로 이동 */
   update(dt) {
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
   }
 
+  /** 해당 적을 아직 맞추지 않았는지 확인 (관통용) */
   canHit(enemy) {
     return !this.hitEnemies.has(enemy.id);
   }
 
+  /** 적 명중 등록 — 최대 관통 수 도달 시 dead 처리 */
   registerHit(enemy) {
     this.hitEnemies.add(enemy.id);
     if (this.hitEnemies.size >= this.maxHits) this.dead = true;
   }
 
+  /** 크리티컬 확률에 따른 최종 피해량 계산 */
   getDamage() {
     const crit = Math.random() < this.critChance;
     return {
@@ -122,6 +146,7 @@ export class Bullet {
     };
   }
 
+  /** 화면 좌표로 변환 후 노란 원형 총알 렌더링 */
   draw(ctx, camera, cx, cy) {
     const s = worldToScreen(this.x, this.y, camera, cx, cy);
     ctx.beginPath();
@@ -134,6 +159,7 @@ export class Bullet {
   }
 }
 
+/** 적이 발사하는 총알 */
 export class EnemyBullet {
   constructor(x, y, angle, speed, damage, radius = 6) {
     this.id = nextEntityId++;
@@ -146,11 +172,13 @@ export class EnemyBullet {
     this.dead = false;
   }
 
+  /** 발사 각도 방향으로 이동 */
   update(dt) {
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
   }
 
+  /** 분홍색 원형 적 총알 렌더링 */
   draw(ctx, camera, cx, cy) {
     const s = worldToScreen(this.x, this.y, camera, cx, cy);
     ctx.beginPath();
@@ -163,6 +191,7 @@ export class EnemyBullet {
   }
 }
 
+/** 일반 적 — 근접/원거리 타입, 레벨 스케일, 넉백·체력바 */
 export class Enemy {
   constructor(x, y, typeKey, level) {
     const type = CONFIG.ENEMY_TYPES[typeKey] || CONFIG.ENEMY_TYPES.melee;
@@ -192,6 +221,7 @@ export class Enemy {
     this.stroke = type.stroke;
   }
 
+  /** 넉백 감쇠, 플레이어 추적 또는 원거리 AI */
   update(dt, targetX, targetY, enemyBullets) {
     if (this.flash > 0) this.flash -= dt;
     this.meleeCooldown = Math.max(0, this.meleeCooldown - dt);
@@ -214,6 +244,7 @@ export class Enemy {
     }
   }
 
+  /** 원거리 적 — 거리 유지 이동 및 쿨다운 시 총알 발사 */
   updateRanged(dt, dx, dy, dist, targetX, targetY, enemyBullets) {
     const t = this.type;
     const preferred = t.preferredRange;
@@ -235,6 +266,7 @@ export class Enemy {
     }
   }
 
+  /** 피해·넉백 적용, HP 0 이하 시 dead */
   takeDamage(amount, angle, knockback) {
     this.hp -= amount;
     this.flash = 0.1;
@@ -244,6 +276,7 @@ export class Enemy {
     if (this.hp <= 0) this.dead = true;
   }
 
+  /** 적 원형·체력바 렌더링 (타입별 색상) */
   draw(ctx, camera, cx, cy) {
     const s = worldToScreen(this.x, this.y, camera, cx, cy);
     ctx.beginPath();
@@ -263,6 +296,7 @@ export class Enemy {
   }
 }
 
+/** 보스 — Enemy 확장, 패턴별 공격·2페이즈·미니언 타이머 */
 export class Boss extends Enemy {
   constructor(x, y, level) {
     super(x, y, 'tank', level);
@@ -296,6 +330,7 @@ export class Boss extends Enemy {
     this.stroke = bossType.stroke;
   }
 
+  /** 플레이어 방향 기준 부채꼴(fan) 형태 다발 총알 발사 */
   fireFan(enemyBullets, count, spread, damageMult, speed = CONFIG.BOSS.bulletSpeed) {
     const dx = this.targetX - this.x;
     const dy = this.targetY - this.y;
@@ -309,6 +344,7 @@ export class Boss extends Enemy {
     }
   }
 
+  /** 360도 원형(ring) 총알 발사 */
   fireRing(enemyBullets, count, damageMult, speed = CONFIG.BOSS.bulletSpeed * 0.85) {
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
@@ -319,6 +355,7 @@ export class Boss extends Enemy {
     }
   }
 
+  /** 플레이어 쪽 이동 — charger 돌진, keepDistance 유지 거리 */
   moveToward(dt, keepDistance = 0) {
     const dx = this.targetX - this.x;
     const dy = this.targetY - this.y;
@@ -348,6 +385,7 @@ export class Boss extends Enemy {
     this.y += (dy / dist) * moveSpeed * dt;
   }
 
+  /** 보스 패턴(charger, artillery, spiral 등)에 따른 공격 실행 */
   attack(enemyBullets) {
     const p2 = this.phase2 ? 1.25 : 1;
 
@@ -407,6 +445,7 @@ export class Boss extends Enemy {
     }
   }
 
+  /** 넉백·페이즈2 전환·거리 유지 이동·공격 쿨다운 처리 */
   update(dt, targetX, targetY, enemyBullets) {
     this.targetX = targetX;
     this.targetY = targetY;
@@ -437,6 +476,7 @@ export class Boss extends Enemy {
     }
   }
 
+  /** 펄스 크기·그라데이션·보스명·페이즈·체력바 렌더링 */
   draw(ctx, camera, cx, cy) {
     const s = worldToScreen(this.x, this.y, camera, cx, cy);
     ctx.save();
@@ -471,6 +511,7 @@ export class Boss extends Enemy {
   }
 }
 
+/** 플레이어 주위를 공전하는 궤도 방패 — 접촉 시 적에게 피해 */
 export class OrbitShield {
   constructor(player, index, total) {
     this.player = player;
@@ -483,10 +524,12 @@ export class OrbitShield {
     this.speed = 2.5;
   }
 
+  /** 공전 각도 증가 */
   update(dt) {
     this.angle += this.speed * dt;
   }
 
+  /** 현재 월드 좌표상 방패 위치 계산 */
   getPosition() {
     const a = this.angle + (this.index / this.total) * Math.PI * 2;
     return {
@@ -495,6 +538,7 @@ export class OrbitShield {
     };
   }
 
+  /** 파란 발광 원형 방패 렌더링 */
   draw(ctx, camera, cx, cy) {
     const pos = this.getPosition();
     const s = worldToScreen(pos.x, pos.y, camera, cx, cy);
@@ -508,6 +552,7 @@ export class OrbitShield {
   }
 }
 
+/** 짧은 수명의 이펙트 파티클 — 폭발·피격 시각 효과 */
 export class Particle {
   constructor(x, y, color, speed = 100) {
     this.x = x;
@@ -522,6 +567,7 @@ export class Particle {
     this.radius = 2 + Math.random() * 3;
   }
 
+  /** 이동·감속·수명 감소 */
   update(dt) {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
@@ -530,6 +576,7 @@ export class Particle {
     this.vy *= 0.95;
   }
 
+  /** 수명에 비례한 투명도로 원형 파티클 렌더링 */
   draw(ctx, camera, cx, cy) {
     const s = worldToScreen(this.x, this.y, camera, cx, cy);
     const alpha = this.life / this.maxLife;
@@ -542,6 +589,10 @@ export class Particle {
   }
 }
 
+/**
+ * 레벨에 맞는 적 타입을 가중치 랜덤으로 선택
+ * (ranged는 Lv3+, tank는 Lv2+ 에서만 풀에 포함)
+ */
 function pickEnemyType(level) {
   const types = Object.values(CONFIG.ENEMY_TYPES);
   let pool = types.filter((t) => {
@@ -558,6 +609,7 @@ function pickEnemyType(level) {
   return 'melee';
 }
 
+/** 멀티플레이 원격 플레이어 아바타 및 닉네임 렌더링 */
 export function drawRemotePlayer(ctx, x, y, angle, color, name, camera, cx, cy) {
   const s = worldToScreen(x, y, camera, cx, cy);
   ctx.save();
@@ -581,6 +633,7 @@ export function drawRemotePlayer(ctx, x, y, angle, color, name, camera, cx, cy) 
   }
 }
 
+/** 네트워크 동기화용 적 스냅샷 데이터로 적·보스 렌더링 */
 export function drawEnemySnapshot(ctx, e, camera, cx, cy) {
   const s = worldToScreen(e.x, e.y, camera, cx, cy);
   if (e.typeKey === 'boss') {
@@ -624,6 +677,7 @@ export function drawEnemySnapshot(ctx, e, camera, cx, cy) {
   ctx.fillRect(s.x - barW / 2, s.y - e.radius - 8, barW * ratio, 4);
 }
 
+/** 플레이어 주변 화면 밖 네 변 중 한 곳에서 적 스폰 */
 export function spawnEnemy(player, w, h, level) {
   const margin = CONFIG.ENEMY.spawnMargin;
   const halfW = w / 2 + margin;
@@ -639,10 +693,12 @@ export function spawnEnemy(player, w, h, level) {
   return new Enemy(x, y, pickEnemyType(level), level);
 }
 
+/** 플레이어 위쪽 고정 거리에 보스 생성 */
 export function spawnBoss(player, level) {
   return new Boss(player.x, player.y - 500, level);
 }
 
+/** 플레이어 위치·조준각 기준 다중 총알 생성 (스프레드 적용) */
 export function fireBullets(player, stats) {
   const bullets = [];
   const count = CONFIG.PLAYER.baseBulletCount + stats.bulletCount;
@@ -658,6 +714,7 @@ export function fireBullets(player, stats) {
   return bullets;
 }
 
+/** 플레이어와 겹친 적을 밀어내어 겹침 방지 */
 export function separateEnemiesFromPlayer(player, enemies) {
   enemies.forEach((e) => {
     if (e.dead) return;
@@ -673,6 +730,7 @@ export function separateEnemiesFromPlayer(player, enemies) {
   });
 }
 
+/** 근접(포인트 블랭크) 공격 — 전방 부채꼴 또는 접촉 범위 내 적 타격 목록 */
 export function getPointBlankHits(player, stats, enemies) {
   const hits = [];
   const damage = CONFIG.PLAYER.baseDamage * stats.damageMult;
@@ -710,6 +768,7 @@ export function getPointBlankHits(player, stats, enemies) {
   return hits;
 }
 
+/** 적의 근접 접촉 피해 — 플레이어와 겹친 적의 meleeCooldown 기반 타격 */
 export function getMeleeHits(player, stats, enemies, dt) {
   const hits = [];
   const damage = CONFIG.PLAYER.baseDamage * stats.damageMult * 0.55 * dt * 4;
@@ -730,6 +789,7 @@ export function getMeleeHits(player, stats, enemies, dt) {
   return hits;
 }
 
+/** 지정 위치에 파티클 다수 생성 (최대 개수 초과 시 오래된 것 제거) */
 export function spawnParticles(particles, x, y, color, count = 8) {
   for (let i = 0; i < count; i++) {
     if (particles.length >= CONFIG.PARTICLES.max) particles.shift();
@@ -737,6 +797,7 @@ export function spawnParticles(particles, x, y, color, count = 8) {
   }
 }
 
+/** 어두운 배경·그리드·장식 점으로 월드 배경 렌더링 */
 export function drawWorldBackground(ctx, camera, w, h, cx, cy) {
   ctx.fillStyle = '#0a0e17';
   ctx.fillRect(0, 0, w, h);

@@ -1,3 +1,10 @@
+/**
+ * 증강(업그레이드) 정의 및 스탯 적용
+ * - 레벨업 시 3택1로 선택
+ * - 동일 증강 중복 선택 가능 (maxTier까지)
+ */
+
+/** 증강 목록 (id, 이름, 효과, 최대 티어) */
 export const AUGMENTS = [
   {
     id: 'damage',
@@ -112,26 +119,32 @@ export const AUGMENTS = [
   },
 ];
 
+/** 플레이어 초기 스탯 객체 생성 */
 export function createStats() {
   return {
-    damageMult: 1,
-    fireRateMult: 1,
-    bulletSpeedMult: 1,
-    bulletCount: 0,
-    pierce: 0,
-    critChance: 0,
-    critMult: 0,
-    maxHpBonus: 0,
-    regen: 0,
-    expMult: 1,
-    moveRadius: 0,
-    moveSpeedMult: 1,
-    knockbackMult: 1,
-    orbitCount: 0,
-    picked: {},
+    damageMult: 1,       // 데미지 배율
+    fireRateMult: 1,     // 발사 속도 배율
+    bulletSpeedMult: 1,  // 탄환 속도 배율
+    bulletCount: 0,      // 추가 탄환 수
+    pierce: 0,           // 관통 횟수
+    critChance: 0,       // 추가 치명타 확률
+    critMult: 0,         // 추가 치명타 배율
+    maxHpBonus: 0,       // 최대 HP 보너스
+    regen: 0,            // 초당 HP 회복
+    expMult: 1,          // EXP 획득 배율
+    moveRadius: 0,       // (미사용 예약)
+    moveSpeedMult: 1,    // 이동 속도 배율
+    knockbackMult: 1,    // 넉백 배율
+    orbitCount: 0,       // 오비탈 개수
+    picked: {},          // { augmentId: tier } 선택 이력
   };
 }
 
+/**
+ * 레벨업 시 랜덤 증강 후보 count개 반환
+ * @param {object} stats - 플레이어 스탯
+ * @param {number} count - 후보 개수 (기본 3)
+ */
 export function getRandomChoices(stats, count = 3) {
   const available = AUGMENTS.filter((a) => {
     const tier = stats.picked[a.id] || 0;
@@ -145,11 +158,13 @@ export function getRandomChoices(stats, count = 3) {
   }));
 }
 
+/** 증강 적용 및 picked 티어 갱신 */
 export function applyAugment(augment, stats, player) {
   augment.apply(stats, player);
   stats.picked[augment.id] = (stats.picked[augment.id] || 0) + 1;
 }
 
+/** HUD에 표시할 증강 태그 문자열 배열 */
 export function getAugmentTags(stats) {
   return Object.entries(stats.picked).map(([id, tier]) => {
     const aug = AUGMENTS.find((a) => a.id === id);

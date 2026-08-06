@@ -1,22 +1,30 @@
 import { WS_URL } from './network-config.js';
 
+/**
+ * 멀티플레이 WebSocket 클라이언트
+ * - 서버와 JSON 메시지로 통신
+ * - on(type, fn)으로 이벤트 구독 (lobby, state, left, error 등)
+ */
 export class NetworkClient {
   constructor() {
-    this.ws = null;
-    this.playerId = null;
-    this.handlers = {};
-    this.connected = false;
-    this.connectPromise = null;
+    this.ws = null;              // WebSocket 인스턴스
+    this.playerId = null;        // 서버가 부여한 플레이어 UUID
+    this.handlers = {};          // type → 콜백 맵
+    this.connected = false;      // 연결 성공 여부
+    this.connectPromise = null;  // connect() 중복 호출 방지용 Promise
   }
 
+  /** 이벤트 핸들러 등록 (예: net.on('state', fn)) */
   on(event, fn) {
     this.handlers[event] = fn;
   }
 
+  /** 등록된 핸들러 호출 */
   emit(event, data) {
     this.handlers[event]?.(data);
   }
 
+  /** WebSocket 연결 (connected 메시지 수신 시 resolve) */
   connect() {
     if (this.connectPromise) return this.connectPromise;
 
@@ -84,6 +92,7 @@ export class NetworkClient {
     return this.connectPromise;
   }
 
+  /** JSON 메시지 전송 (연결 안 됐으면 false) */
   send(data) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
@@ -92,30 +101,36 @@ export class NetworkClient {
     return false;
   }
 
+  /** 방 생성 요청 */
   createRoom(name) {
     if (!this.send({ type: 'createRoom', name })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
     }
   }
 
+  /** 4자리 코드로 방 참가 */
   joinRoom(code, name) {
     if (!this.send({ type: 'joinRoom', code, name })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
     }
   }
 
+  /** 방장: 게임 시작 */
   startGame() {
     this.send({ type: 'startGame' });
   }
 
+  /** 이동·조준 입력 전송 */
   sendInput(input) {
     this.send({ type: 'input', ...input });
   }
 
+  /** 증강 선택 */
   pickAugment(augmentId) {
     this.send({ type: 'pickAugment', augmentId });
   }
 
+  /** 게임 중 포기 (사망 처리 후 방 로비 대기) */
   forfeit() {
     if (!this.send({ type: 'forfeit' })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
@@ -124,6 +139,7 @@ export class NetworkClient {
     return true;
   }
 
+  /** 방 완전 퇴장 */
   leaveRoom() {
     if (!this.send({ type: 'leaveRoom' })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
@@ -132,6 +148,7 @@ export class NetworkClient {
     return true;
   }
 
+  /** 연결 종료 */
   disconnect() {
     this.connectPromise = null;
     this.ws?.close();

@@ -1,9 +1,16 @@
-/** WebSocket 서버 URL */
+/**
+ * 멀티플레이 WebSocket 서버 주소 설정
+ * - URL 쿼리 ?server= 로 커스텀 서버 지정 가능
+ * - Vercel(정적) + Railway(게임 서버) 분리 배포 시 자동 연결
+ */
+
+/** 현재 환경에 맞는 WebSocket URL (즉시 평가) */
 export const WS_URL = (() => {
   const params = new URLSearchParams(location.search);
   const custom = params.get('server');
   if (custom) return custom;
 
+  // 로컬 개발
   if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     return 'ws://localhost:8080';
   }
@@ -18,10 +25,16 @@ export const WS_URL = (() => {
   return `${proto}//${location.host}`;
 })();
 
+/** ws(s) URL을 http(s) URL로 변환 (헬스체크용) */
 function wsToHttp(url) {
   return url.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
 }
 
+/**
+ * 게임 서버 생존 여부 확인
+ * @param {string} baseUrl - WebSocket 기준 URL
+ * @returns {Promise<boolean>} /health 응답이 정상이면 true
+ */
 export async function verifyServer(baseUrl) {
   try {
     const httpUrl = wsToHttp(baseUrl);
