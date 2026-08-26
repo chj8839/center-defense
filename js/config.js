@@ -106,7 +106,7 @@ export const CONFIG = {
 
   /** 보스 공통 기본 스탯 (타입별 배율은 BOSS_TYPES 참조) */
   BOSS: {
-    hp: 12000,
+    hp: 2000,
     speed: 55,
     damage: 35,
     radius: 60,
@@ -255,7 +255,7 @@ export const CONFIG = {
   /** 레벨업에 필요한 경험치 계산용 상수 */
   EXP: {
     baseToLevel: 80,
-    levelScale: 1.35,
+    levelScale: 1.05,
   },
 
   /** 파티클(이펙트) 시스템 제한 */
