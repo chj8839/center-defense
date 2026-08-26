@@ -11,7 +11,7 @@ import { CONFIG, expForLevel, spawnIntervalForLevel, isBossLevel, getBossType } 
 import { createStats, getRandomChoices, applyAugment, getAugmentById } from '../js/augments.js';
 import {
   getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility, getSpecialMeterMax,
-  performPlayerAttack,
+  performPlayerAttack, applyThornsReflect,
 } from '../js/characters.js';
 import {
   Player, Enemy, Boss, Bullet, EnemyBullet,
@@ -363,11 +363,9 @@ export class GameRoom {
       desc: a.desc,
       tier: a.tier,
     }));
-    if (!choices.length) {
-      this.tryLevelUp(p);
-      return;
+    if (choices.length) {
+      p.augmentQueue.push({ level: p.level, choices });
     }
-    p.augmentQueue.push({ level: p.level, choices });
   }
 
   /**
@@ -377,7 +375,7 @@ export class GameRoom {
   tryLevelUp(p) {
     if (!p.alive) return;
     if (p.gameState === 'bossWarning' || p.gameState === 'gameOver' || p.gameState === 'victory') return;
-    if (p.exp >= expForLevel(p.level) && p.level < CONFIG.MAX_LEVEL) {
+    while (p.exp >= expForLevel(p.level) && p.level < CONFIG.MAX_LEVEL) {
       p.exp -= expForLevel(p.level);
       this.levelUpPlayer(p);
     }
@@ -684,6 +682,7 @@ export class GameRoom {
             if (p.player.specialShield > 0) dmg *= 0.5;
             if (p.player.takeDamage(dmg)) {
             p.player.contactCooldown = 0.4;
+            applyThornsReflect(e, dmg, p.stats, angle, (enemy) => this.onEnemyKill(p, enemy));
             if (p.player.hp <= 0) {
               p.alive = false;
               p.gameState = 'gameOver';

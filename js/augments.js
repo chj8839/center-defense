@@ -4,7 +4,7 @@
  * - 동일 증강 중복 선택 가능 (maxTier까지)
  */
 
-import { getCharacter, SPECIAL_AUGMENTS } from './characters.js';
+import { getCharacter, SPECIAL_AUGMENTS, WEAPON_AUGMENTS } from './characters.js';
 /** 증강 목록 (id, 이름, 효과, 최대 티어) */
 export const AUGMENTS = [
   {
@@ -20,6 +20,7 @@ export const AUGMENTS = [
     name: '공격속도',
     icon: '🔥',
     desc: '공격 속도 +50%',
+    excludeCharacters: ['gunner'],
     apply: (s) => { s.fireRateMult *= 1.5; },
     maxTier: 16,
   },
@@ -189,13 +190,27 @@ export function createStats(characterId = 'gunner') {
     meleeArcMult: 1,
     lifeSteal: 0,
     damageReduction: 0,
+    instantFire: false,
+    thornsReflect: 0,
+    weaponMastered: false,
     picked: {},
   };
 }
 
-/** id로 증강 정의 조회 (일반 + 캐릭터 전용) */
+/** 증강 선택지 표시용 설명·티어 보강 */
+function enrichAugmentChoice(a, stats) {
+  const tier = (stats.picked[a.id] || 0) + 1;
+  if (a.isWeaponAugment) {
+    return { ...a, tier, desc: a.tierEffects[tier - 1]?.desc || '' };
+  }
+  return { ...a, tier, desc: a.desc };
+}
+
+/** id로 증강 정의 조회 (일반 + 무기 + 캐릭터 전용) */
 export function getAugmentById(id) {
-  return AUGMENTS.find((a) => a.id === id) || SPECIAL_AUGMENTS.find((a) => a.id === id);
+  return AUGMENTS.find((a) => a.id === id)
+    || WEAPON_AUGMENTS.find((a) => a.id === id)
+    || SPECIAL_AUGMENTS.find((a) => a.id === id);
 }
 
 /**
@@ -205,25 +220,28 @@ export function getAugmentById(id) {
  */
 export function getRandomChoices(stats, count = 3) {
   const attackStyle = getCharacter(stats.characterId).attackStyle;
-  const pool = [...AUGMENTS, ...SPECIAL_AUGMENTS];
+  const pool = [...AUGMENTS, ...WEAPON_AUGMENTS, ...SPECIAL_AUGMENTS];
   const available = pool.filter((a) => {
     const tier = stats.picked[a.id] || 0;
     if (tier >= a.maxTier) return false;
     if (a.characterId && a.characterId !== stats.characterId) return false;
+    if (a.excludeCharacters?.includes(stats.characterId)) return false;
     if (a.attackStyle && a.attackStyle !== attackStyle) return false;
     return true;
   });
 
   const shuffled = [...available].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count).map((a) => ({
-    ...a,
-    tier: (stats.picked[a.id] || 0) + 1,
-  }));
+  return shuffled.slice(0, count).map((a) => enrichAugmentChoice(a, stats));
 }
 
 /** 증강 적용 및 picked 티어 갱신 */
 export function applyAugment(augment, stats, player) {
-  augment.apply(stats, player);
+  if (augment.isWeaponAugment) {
+    const tier = (stats.picked[augment.id] || 0) + 1;
+    augment.tierEffects[tier - 1]?.apply(stats, player);
+  } else {
+    augment.apply(stats, player);
+  }
   stats.picked[augment.id] = (stats.picked[augment.id] || 0) + 1;
 }
 
@@ -231,6 +249,8 @@ export function applyAugment(augment, stats, player) {
 export function getAugmentTags(stats) {
   return Object.entries(stats.picked).map(([id, tier]) => {
     const aug = getAugmentById(id);
-    return aug ? `${aug.name} Lv${tier}` : id;
+    if (!aug) return id;
+    const mastered = aug.isWeaponAugment && tier >= aug.maxTier;
+    return `${aug.name} Lv${tier}${mastered ? ' ★' : ''}`;
   });
 }

@@ -90,6 +90,70 @@ export const CHARACTERS = [
   },
 ];
 
+/** 캐릭터별 무기 업그레이드 — 최대 5랩, 5랩 각성 시 강력한 보너스 */
+export const WEAPON_AUGMENTS = [
+  {
+    id: 'weapon_vampire',
+    name: '혈검',
+    icon: '🗡',
+    characterId: 'vampire',
+    isWeaponAugment: true,
+    maxTier: 5,
+    tierEffects: [
+      { desc: '근접 사거리 +12%, 각도 +8%', apply: (s) => { s.meleeRangeMult *= 1.12; s.meleeArcMult *= 1.08; } },
+      { desc: '흡혈 +6%', apply: (s) => { s.lifeSteal += 0.06; } },
+      { desc: '근접 공격력 +20%', apply: (s) => { s.meleeDamageMult *= 1.2; } },
+      { desc: '특수 범위 +25%, 흡혈 +8%', apply: (s) => { s.specialRadiusMult *= 1.25; s.lifeSteal += 0.08; } },
+      { desc: '【각성】 전 범위 +55%, 흡혈 40%, 특수 흡혈 극대', apply: (s) => {
+        s.meleeRangeMult *= 1.55;
+        s.meleeArcMult *= 1.55;
+        s.lifeSteal = Math.min(0.65, s.lifeSteal + 0.25);
+        s.specialLifeStealBonus += 0.35;
+        s.specialRadiusMult *= 1.35;
+        s.weaponMastered = true;
+      } },
+    ],
+  },
+  {
+    id: 'weapon_gunner',
+    name: '개조 화기',
+    icon: '🔫',
+    characterId: 'gunner',
+    isWeaponAugment: true,
+    maxTier: 5,
+    tierEffects: [
+      { desc: '공격력 +18%', apply: (s) => { s.damageMult *= 1.18; } },
+      { desc: '탄환 +1, 탄속 +15%', apply: (s) => { s.bulletCount += 1; s.bulletSpeedMult *= 1.15; } },
+      { desc: '공격 속도 +45%', apply: (s) => { s.fireRateMult *= 1.45; } },
+      { desc: '관통 +1, 공격력 +15%', apply: (s) => { s.pierce += 1; s.damageMult *= 1.15; } },
+      { desc: '【각성】 공격 딜레이 제거 — 즉시 연사', apply: (s) => {
+        s.instantFire = true;
+        s.damageMult *= 1.25;
+        s.weaponMastered = true;
+      } },
+    ],
+  },
+  {
+    id: 'weapon_guardian',
+    name: '성스러운 방패',
+    icon: '🛡',
+    characterId: 'guardian',
+    isWeaponAugment: true,
+    maxTier: 5,
+    tierEffects: [
+      { desc: '피해 감소 +6%', apply: (s) => { s.damageReduction = Math.min(0.5, s.damageReduction + 0.06); } },
+      { desc: '최대 HP +30', apply: (s, p) => { s.maxHpBonus += 30; p.maxHp += 30; p.hp = Math.min(p.hp + 30, p.maxHp); } },
+      { desc: '반사 피해 +15%', apply: (s) => { s.thornsReflect = (s.thornsReflect || 0) + 0.15; } },
+      { desc: '피해 감소 +10%, 넉백 +25%', apply: (s) => { s.damageReduction = Math.min(0.55, s.damageReduction + 0.10); s.knockbackMult *= 1.25; } },
+      { desc: '【각성】 피해감소 50%, 접촉 피해 85% 반사', apply: (s) => {
+        s.damageReduction = Math.min(0.75, Math.max(s.damageReduction, 0.5));
+        s.thornsReflect = Math.max(s.thornsReflect || 0, 0.85);
+        s.weaponMastered = true;
+      } },
+    ],
+  },
+];
+
 /** 특수 능력·무기 관련 증강 (일반 + 캐릭터 전용) */
 export const SPECIAL_AUGMENTS = [
   {
@@ -182,6 +246,15 @@ export const SPECIAL_AUGMENTS = [
 ];
 
 const DEFAULT_CHARACTER_ID = 'gunner';
+
+/** 접촉 피해 시 가시(반사) 피해 적용 */
+export function applyThornsReflect(enemy, damageTaken, stats, angle, onKill) {
+  const ratio = stats.thornsReflect || 0;
+  if (ratio <= 0 || enemy.dead) return;
+  const reflect = damageTaken * ratio;
+  enemy.takeDamage(reflect, angle + Math.PI, 100 * (stats.knockbackMult || 1));
+  if (enemy.dead) onKill?.(enemy);
+}
 
 /** @param {string} [id] */
 export function getCharacter(id) {

@@ -14,7 +14,7 @@ import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './a
 import {
   getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility,
   canUseSpecial, getSpecialMeterMax, renderCharacterCards, loadSelectedCharacter, saveSelectedCharacter,
-  performPlayerAttack,
+  performPlayerAttack, applyThornsReflect,
 } from './characters.js';
 import { touchControls } from './touchControls.js';
 import {
@@ -44,6 +44,8 @@ const victory = document.getElementById('victory');
 const gameOver = document.getElementById('gameOver');
 /** @type {HTMLElement} 증강 선택 카드가 들어가는 컨테이너 */
 const augmentChoices = document.getElementById('augmentChoices');
+/** @type {HTMLElement} 남은 증강 선택 횟수 표시 */
+const augmentPendingHint = document.getElementById('augmentPendingHint');
 /** @type {HTMLElement} HUD에 표시되는 보유 증강 태그 목록 */
 const augmentList = document.getElementById('augmentList');
 /** @type {HTMLElement} HP 바(너비로 비율 표시) */
@@ -119,6 +121,8 @@ let saveData = loadSave();
 let bossWarningTimer = 0;
 /** @type {Array<{ x, y, text, color, life, vy }>} 월드 위 떠오르는 데미지·EXP 텍스트 */
 let floatingTexts = [];
+/** @type {Array<{ level: number, choices: object[] }>} 연속 레벨업 증강 대기열 */
+let augmentQueue = [];
 
 /**
  * 창 크기에 맞춰 캔버스·뷰포트 중심을 갱신한다.
@@ -220,6 +224,7 @@ function initGame(characterId = loadSelectedCharacter()) {
   bossRef = null;
   nextBossLevel = CONFIG.BOSS_INTERVAL;
   floatingTexts = [];
+  augmentQueue = [];
   updateHud();
   updateAugmentList();
 }
@@ -270,27 +275,55 @@ function startGame() {
  */
 function addExp(amount) {
   exp += Math.floor(amount * stats.expMult * CONFIG.PLAYER.baseExpMult);
-  while (exp >= expForLevel(level)) {
+  while (exp >= expForLevel(level) && level < CONFIG.MAX_LEVEL) {
     exp -= expForLevel(level);
-    levelUp();
+    queueLevelUp();
   }
   updateHud();
+  processAugmentQueue();
 }
 
-/**
- * 레벨을 1 올리고 증강 선택 UI를 연다(MAX_LEVEL 초과 시 무시).
- */
-function levelUp() {
+/** 레벨 상승 후 증강 선택지를 대기열에 추가한다. */
+function queueLevelUp() {
   if (level >= CONFIG.MAX_LEVEL) return;
   level++;
-  showLevelUpChoices();
+  const choices = getRandomChoices(stats, 3);
+  if (choices.length) augmentQueue.push({ level, choices });
+}
+
+/** 대기 중인 증강 선택이 있으면 UI를 연다. */
+function processAugmentQueue() {
+  if (augmentQueue.length && state !== STATES.LEVEL_UP) {
+    showNextAugmentChoice();
+  }
+}
+
+/** 대기열 맨 앞 증강 선택 UI 표시 */
+function showNextAugmentChoice() {
+  if (!augmentQueue.length) {
+    resumeAfterAugments();
+    return;
+  }
+  showLevelUpChoices(augmentQueue[0].choices, augmentQueue.length);
+  setState(STATES.LEVEL_UP);
+}
+
+/** 증강 선택을 모두 마친 뒤 전투/보스 상태로 복귀 */
+function resumeAfterAugments() {
+  if (shouldTriggerBoss()) triggerBoss();
+  else setState(bossRef ? STATES.BOSS : STATES.PLAYING);
 }
 
 /**
  * 랜덤 증강 3개 카드를 만들고 LEVEL_UP 상태로 전환한다.
+ * @param {object[]} choices
+ * @param {number} [pending=1] 남은 선택 횟수
  */
-function showLevelUpChoices() {
-  const choices = getRandomChoices(stats, 3);
+function showLevelUpChoices(choices, pending = 1) {
+  if (augmentPendingHint) {
+    augmentPendingHint.textContent = pending > 1 ? `남은 선택 ${pending}회` : '';
+    augmentPendingHint.classList.toggle('hidden', pending <= 1);
+  }
   augmentChoices.innerHTML = '';
   choices.forEach((aug) => {
     const card = document.createElement('div');
@@ -304,7 +337,6 @@ function showLevelUpChoices() {
     card.addEventListener('click', () => pickAugment(aug));
     augmentChoices.appendChild(card);
   });
-  setState(STATES.LEVEL_UP);
 }
 
 /**
@@ -316,11 +348,12 @@ function pickAugment(aug) {
   if (aug.id === 'orbit') rebuildOrbits();
   updateAugmentList();
   updateHud();
+  augmentQueue.shift();
 
-  if (shouldTriggerBoss()) {
-    triggerBoss();
+  if (augmentQueue.length) {
+    showNextAugmentChoice();
   } else {
-    setState(bossRef ? STATES.BOSS : STATES.PLAYING);
+    resumeAfterAugments();
   }
 }
 
@@ -584,6 +617,10 @@ function updatePlaying(dt) {
         if (player.takeDamage(dmg)) {
           player.contactCooldown = 0.4;
           spawnParticles(particles, player.x, player.y, '#f44', 6);
+          applyThornsReflect(e, dmg, stats, angle, onEnemyKill);
+          if (stats.thornsReflect > 0 && !e.dead) {
+            spawnParticles(particles, e.x, e.y, '#cfc', 5);
+          }
           if (player.hp <= 0) onGameOver();
         }
       }

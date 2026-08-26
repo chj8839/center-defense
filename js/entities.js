@@ -66,6 +66,7 @@ export class Player {
 
   /** 발사 쿨다운이 충족되면 true 반환 및 쿨다운 재설정 */
   canFire(dt, stats) {
+    if (stats.instantFire) return true;
     this.fireCooldown -= dt;
     const rate = CONFIG.PLAYER.baseFireRate * stats.fireRateMult;
     if (this.fireCooldown <= 0) {
