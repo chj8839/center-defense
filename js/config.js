@@ -36,7 +36,7 @@ export const CONFIG = {
     baseHp: 30,
     baseSpeed: 80,
     baseDamage: 10,
-    baseExp: 15,
+    baseExp: 20,
     spawnInterval: 1.2,
     spawnIntervalMid: 0.28,
     spawnIntervalMin: 0.08,
@@ -108,9 +108,9 @@ export const CONFIG = {
 
   /** 보스 공통 기본 스탯 (타입별 배율은 BOSS_TYPES 참조) */
   BOSS: {
-    hp: 12000,
+    hp: 1000,
     speed: 55,
-    damage: 35,
+    damage: 5,
     radius: 60,
     exp: 800,
     minionInterval: 2.2,
