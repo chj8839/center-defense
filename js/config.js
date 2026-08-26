@@ -257,7 +257,7 @@ export const CONFIG = {
   /** 레벨업에 필요한 경험치 — baseToLevel + perLevel × (레벨−1) 선형 증가 */
   EXP: {
     baseToLevel: 80,
-    perLevel: 15,
+    perLevel: 45,
   },
 
   /** 파티클(이펙트) 시스템 제한 */
