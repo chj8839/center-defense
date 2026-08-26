@@ -10,6 +10,9 @@
 import { CONFIG, expForLevel, spawnIntervalForLevel, isBossLevel, getBossType } from '../js/config.js';
 import { createStats, getRandomChoices, applyAugment, AUGMENTS } from '../js/augments.js';
 import {
+  getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility, getSpecialMeterMax,
+} from '../js/characters.js';
+import {
   Player, Enemy, Boss, Bullet, EnemyBullet,
   spawnEnemy, spawnBoss, fireBullets,
   getPointBlankHits, getMeleeHits,
@@ -142,18 +145,24 @@ export class GameRoom {
    * @param {string} name 표시 이름 (12자 제한)
    * @returns {boolean} 추가 성공 여부
    */
-  addPlayer(id, name) {
+  addPlayer(id, name, characterId = 'gunner') {
     if (this.players.size >= 4) return false;
     const slot = this.players.size;
     const offset = slot * 100;
+    const cid = getCharacter(characterId).id;
     const player = new Player(offset, offset);
     player.id = id;
+    player.specialMeter = 0;
+    player.specialShield = 0;
+    const stats = createStats(cid);
+    applyCharacterBase(stats, player, cid);
     this.players.set(id, {
       id,
       name: name.slice(0, 12) || `P${slot + 1}`,
       color: PLAYER_COLORS[slot],
+      characterId: cid,
       player,
-      stats: createStats(),
+      stats,
       level: 1,
       exp: 0,
       kills: 0,
@@ -164,7 +173,7 @@ export class GameRoom {
       augmentQueue: [],
       alive: true,
       orbitAngles: [],
-      input: { up: false, down: false, left: false, right: false, angle: 0 },
+      input: { up: false, down: false, left: false, right: false, angle: 0, useSpecial: false },
     });
     return true;
   }
@@ -195,10 +204,15 @@ export class GameRoom {
     this.enemyBullets = [];
     this.spawnTimer = 0;
     for (const p of this.players.values()) {
+      const cid = p.characterId || p.stats?.characterId || 'gunner';
       p.level = 1;
       p.exp = 0;
       p.kills = 0;
-      p.stats = createStats();
+      p.stats = createStats(cid);
+      p.characterId = cid;
+      p.player.specialMeter = 0;
+      p.player.specialShield = 0;
+      applyCharacterBase(p.stats, p.player, cid);
       p.nextBossLevel = CONFIG.BOSS_INTERVAL;
       p.bossEnemyId = null;
       p.bossWarningTimer = 0;
@@ -286,6 +300,17 @@ export class GameRoom {
     const p = this.players.get(id);
     if (!p) return;
     p.input = { ...p.input, ...input };
+  }
+
+  /** 플레이어 캐릭터 변경 (로비·대기 중) */
+  setCharacter(id, characterId) {
+    const p = this.players.get(id);
+    if (!p || this.state !== 'waiting') return;
+    const cid = getCharacter(characterId).id;
+    p.characterId = cid;
+    p.stats = createStats(cid);
+    p.player.specialMeter = 0;
+    applyCharacterBase(p.stats, p.player, cid);
   }
 
   /**
@@ -396,6 +421,7 @@ export class GameRoom {
    */
   onEnemyKill(killer, enemy) {
     if (!killer?.alive) return;
+    chargeSpecialMeter(killer.stats, killer.player, 'kill');
     killer.kills++;
     this.addExp(killer, enemy.exp);
     if (killer.bossEnemyId === enemy.id) {
@@ -452,6 +478,17 @@ export class GameRoom {
     p.player.update(dt, worldMouse, p.stats, keys);
     p.player.contactCooldown = Math.max(0, (p.player.contactCooldown || 0) - dt);
 
+    if (p.input.useSpecial) {
+      useSpecialAbility(p.player, p.stats, {
+        enemies: this.enemies,
+        bullets: this.bullets,
+        particles: [],
+        ownerId: p.id,
+        onEnemyKill: (e) => this.onEnemyKill(p, e),
+      });
+      p.input.useSpecial = false;
+    }
+
     if (p.player.canFire(dt, p.stats)) {
       const newBullets = fireBullets(p.player, p.stats);
       newBullets.forEach((b) => { b.ownerId = p.id; });
@@ -459,7 +496,8 @@ export class GameRoom {
 
       getPointBlankHits(p.player, p.stats, this.enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
         if (enemy.dead) return;
-        const dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + p.stats.critMult) : amount;
+        let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + p.stats.critMult) : amount;
+        dmg *= p.stats.meleeDamageMult || 1;
         this.applyHit(enemy, dmg, angle, knockback, p);
       });
     }
@@ -496,6 +534,13 @@ export class GameRoom {
    */
   applyHit(enemy, amount, angle, knockback, killer) {
     enemy.takeDamage(amount, angle, knockback);
+    if (killer?.stats?.lifeSteal > 0) {
+      killer.player.hp = Math.min(
+        killer.player.maxHp,
+        killer.player.hp + amount * killer.stats.lifeSteal,
+      );
+    }
+    chargeSpecialMeter(killer.stats, killer.player, 'hit');
     if (enemy.dead) this.onEnemyKill(killer, enemy);
   }
 
@@ -600,7 +645,9 @@ export class GameRoom {
       for (const p of this.players.values()) {
         if (!p.alive || this.isPausedPlayer(p)) continue;
         if (Math.hypot(b.x - p.player.x, b.y - p.player.y) < b.radius + p.player.radius) {
-          if (p.player.takeDamage(b.damage)) {
+          let dmg = b.damage * (1 - (p.stats.damageReduction || 0));
+          if (p.player.specialShield > 0) dmg *= 0.5;
+          if (p.player.takeDamage(dmg)) {
             if (p.player.hp <= 0) {
               p.alive = false;
               p.gameState = 'gameOver';
@@ -626,8 +673,10 @@ export class GameRoom {
         const angle = Math.atan2(dy, dx);
         e.knockbackX += Math.cos(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
         e.knockbackY += Math.sin(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
-        if (p.player.contactCooldown <= 0) {
-          if (p.player.takeDamage(e.damage)) {
+          if (p.player.contactCooldown <= 0) {
+            let dmg = e.damage * (1 - (p.stats.damageReduction || 0));
+            if (p.player.specialShield > 0) dmg *= 0.5;
+            if (p.player.takeDamage(dmg)) {
             p.player.contactCooldown = 0.4;
             if (p.player.hp <= 0) {
               p.alive = false;
@@ -662,6 +711,8 @@ export class GameRoom {
         id: p.id,
         name: p.name,
         color: p.color,
+        characterId: p.characterId,
+        characterName: getCharacter(p.characterId).name,
         alive: p.alive,
       })),
     };
@@ -698,6 +749,10 @@ export class GameRoom {
         expNeed: expForLevel(p.level),
         kills: p.kills,
         color: p.color,
+        characterId: p.characterId,
+        characterName: getCharacter(p.characterId).name,
+        specialMeter: p.player.specialMeter || 0,
+        specialMeterMax: getSpecialMeterMax(p.stats),
         alive: p.alive,
         gameState: p.gameState,
         moveSpeedMult: p.stats.moveSpeedMult,
@@ -751,9 +806,9 @@ export class RoomManager {
    * @param {string} name
    * @returns {GameRoom}
    */
-  createRoom(playerId, name) {
+  createRoom(playerId, name, characterId) {
     const room = new GameRoom(playerId);
-    room.addPlayer(playerId, name);
+    room.addPlayer(playerId, name, characterId);
     this.rooms.set(room.code, room);
     this.playerRoom.set(playerId, room.code);
     return room;
@@ -766,10 +821,10 @@ export class RoomManager {
    * @param {string} name
    * @returns {GameRoom|null}
    */
-  joinRoom(playerId, code, name) {
+  joinRoom(playerId, code, name, characterId) {
     const room = this.rooms.get(code.toUpperCase());
     if (!room || room.state !== 'waiting') return null;
-    if (!room.addPlayer(playerId, name)) return null;
+    if (!room.addPlayer(playerId, name, characterId)) return null;
     this.playerRoom.set(playerId, room.code);
     return room;
   }

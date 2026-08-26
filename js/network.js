@@ -102,17 +102,22 @@ export class NetworkClient {
   }
 
   /** 방 생성 요청 */
-  createRoom(name) {
-    if (!this.send({ type: 'createRoom', name })) {
+  createRoom(name, characterId) {
+    if (!this.send({ type: 'createRoom', name, characterId })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
     }
   }
 
   /** 4자리 코드로 방 참가 */
-  joinRoom(code, name) {
-    if (!this.send({ type: 'joinRoom', code, name })) {
+  joinRoom(code, name, characterId) {
+    if (!this.send({ type: 'joinRoom', code, name, characterId })) {
       this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
     }
+  }
+
+  /** 로비에서 캐릭터 변경 */
+  setCharacter(characterId) {
+    this.send({ type: 'setCharacter', characterId });
   }
 
   /** 방장: 게임 시작 */

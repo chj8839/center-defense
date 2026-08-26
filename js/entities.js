@@ -58,6 +58,7 @@ export class Player {
     this.angle = Math.atan2(dy, dx);
 
     if (this.invincible > 0) this.invincible -= dt;
+    if (this.specialShield > 0) this.specialShield -= dt;
     if (stats.regen > 0) {
       this.hp = Math.min(this.maxHp, this.hp + stats.regen * dt);
     }

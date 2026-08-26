@@ -11,6 +11,10 @@
  */
 import { CONFIG, STATES, expForLevel, spawnIntervalForLevel, loadSave, writeSave, isBossLevel, getBossType } from './config.js';
 import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './augments.js';
+import {
+  getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility,
+  canUseSpecial, getSpecialMeterMax, renderCharacterCards, loadSelectedCharacter, saveSelectedCharacter,
+} from './characters.js';
 import { touchControls } from './touchControls.js';
 import {
   Player, spawnEnemy, spawnBoss, fireBullets,
@@ -58,6 +62,10 @@ const bossLevelHint = document.getElementById('bossLevelHint');
 const bossWarningName = document.getElementById('bossWarningName');
 /** @type {HTMLElement} 보스 경고창의 보스 설명 */
 const bossWarningDesc = document.getElementById('bossWarningDesc');
+const characterSelect = document.getElementById('characterSelect');
+const characterChoices = document.getElementById('characterChoices');
+const specialBar = document.getElementById('specialBar');
+const specialBtn = document.getElementById('specialBtn');
 
 bossLevelHint.textContent = `${CONFIG.BOSS_INTERVAL}레벨마다 보스 · Lv.${CONFIG.MAX_LEVEL} 클리어!`;
 
@@ -70,9 +78,10 @@ const keys = new Set();
 /** @type {{ x: number, y: number }} 카메라 중심(플레이어 추적) 월드 좌표 */
 const camera = { x: 0, y: 0 };
 
+/** @type {string} 선택된 캐릭터 색상 */
+let playerColor = '#3af';
 /** @type {string} 현재 게임 상태(STATES: LOBBY, PLAYING, BOSS 등) */
 let state = STATES.LOBBY;
-/** @type {number} 캔버스 너비, 높이, 화면 중심 cx/cy */
 let w, h, cx, cy;
 /** @type {Player|null} 플레이어 인스턴스 */
 let player;
@@ -151,9 +160,11 @@ function setState(newState) {
   hide(bossWarning);
   hide(victory);
   hide(gameOver);
+  hide(characterSelect);
 
   const touchActive = newState === STATES.PLAYING || newState === STATES.BOSS;
   touchControls.setActive(touchActive);
+  if (specialBtn) specialBtn.classList.toggle('hidden', !touchActive);
 
   switch (newState) {
     case STATES.LOBBY: show(lobby); refreshLobby(); break;
@@ -182,12 +193,17 @@ function refreshLobby() {
 /**
  * 새 게임 런을 위한 레벨·플레이어·배열·타이머를 초기화한다.
  */
-function initGame() {
+function initGame(characterId = loadSelectedCharacter()) {
   level = 1;
   exp = 0;
   kills = 0;
-  stats = createStats();
+  stats = createStats(characterId);
   player = new Player(0, 0);
+  player.specialMeter = 0;
+  player.specialShield = 0;
+  applyCharacterBase(stats, player, characterId);
+  playerColor = getCharacter(characterId).color;
+  saveSelectedCharacter(characterId);
   camera.x = 0;
   camera.y = 0;
   enemies = [];
@@ -214,12 +230,33 @@ function rebuildOrbits() {
 }
 
 /**
- * 리사이즈 후 초기화하고 PLAYING 상태로 게임을 시작한다.
+ * 캐릭터 선택 화면을 연다.
+ * @param {(characterId: string) => void} onPick
+ */
+function openCharacterSelect(onPick) {
+  let selected = loadSelectedCharacter();
+  const pickHandler = (id) => {
+    selected = id;
+    saveSelectedCharacter(id);
+    renderCharacterCards(characterChoices, pickHandler, selected);
+  };
+  renderCharacterCards(characterChoices, (id) => {
+    saveSelectedCharacter(id);
+    hide(characterSelect);
+    onPick(id);
+  }, selected);
+  show(characterSelect);
+}
+
+/**
+ * 리사이즈 후 캐릭터 선택 → 게임 시작.
  */
 function startGame() {
-  resize();
-  initGame();
-  setState(STATES.PLAYING);
+  openCharacterSelect((characterId) => {
+    resize();
+    initGame(characterId);
+    setState(STATES.PLAYING);
+  });
 }
 
 /**
@@ -337,6 +374,12 @@ function updateHud() {
   if (!player) return;
   hpBar.style.width = `${(player.hp / player.maxHp) * 100}%`;
   expBar.style.width = `${(exp / expForLevel(level)) * 100}%`;
+  const maxSp = getSpecialMeterMax(stats);
+  specialBar.style.width = `${((player.specialMeter || 0) / maxSp) * 100}%`;
+  if (specialBtn) {
+    specialBtn.classList.toggle('ready', canUseSpecial(stats, player));
+    specialBtn.title = `${getCharacter(stats.characterId).special.name} (Space)`;
+  }
   levelText.textContent = level;
   killText.textContent = kills;
 }
@@ -371,6 +414,10 @@ function addFloatingText(wx, wy, text, color = '#ff8') {
  */
 function applyEnemyHit(enemy, amount, angle, knockback, crit = false) {
   enemy.takeDamage(amount, angle, knockback);
+  if (stats.lifeSteal > 0) {
+    player.hp = Math.min(player.maxHp, player.hp + amount * stats.lifeSteal);
+  }
+  chargeSpecialMeter(stats, player, 'hit');
   if (crit) addFloatingText(enemy.x, enemy.y - 20, 'CRIT!', '#f44');
   spawnParticles(particles, enemy.x, enemy.y, '#ff8', 3);
   if (enemy.dead) onEnemyKill(enemy);
@@ -413,6 +460,14 @@ function getEffectiveKeys() {
   return k;
 }
 
+function tryUseSpecial() {
+  if (state !== STATES.PLAYING && state !== STATES.BOSS) return;
+  if (!useSpecialAbility(player, stats, {
+    enemies, bullets, particles, onEnemyKill: (e) => onEnemyKill(e),
+  })) return;
+  updateHud();
+}
+
 /**
  * PLAYING/BOSS 프레임: 이동·사격·스폰·충돌·파티클·HUD를 한 틱 갱신한다.
  * @param {number} dt 델타 시간(초, 상한 0.05)
@@ -430,7 +485,8 @@ function updatePlaying(dt) {
     bullets.push(...fireBullets(player, stats));
     getPointBlankHits(player, stats, enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
       if (enemy.dead) return;
-      const dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + stats.critMult) : amount;
+      let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + stats.critMult) : amount;
+      dmg *= stats.meleeDamageMult || 1;
       applyEnemyHit(enemy, dmg, angle, knockback, crit);
     });
   }
@@ -488,7 +544,9 @@ function updatePlaying(dt) {
     if (Math.hypot(b.x - player.x, b.y - player.y) > cullDist) return false;
     const dist = Math.hypot(b.x - player.x, b.y - player.y);
     if (dist < b.radius + player.radius) {
-      if (player.takeDamage(b.damage)) {
+      let dmg = b.damage * (1 - (stats.damageReduction || 0));
+      if (player.specialShield > 0) dmg *= 0.5;
+      if (player.takeDamage(dmg)) {
         spawnParticles(particles, player.x, player.y, '#f44', 6);
         if (player.hp <= 0) onGameOver();
       }
@@ -519,7 +577,9 @@ function updatePlaying(dt) {
       e.knockbackY += Math.sin(angle) * 280 * stats.knockbackMult * (1 - e.knockbackResist);
 
       if (player.contactCooldown <= 0) {
-        if (player.takeDamage(e.damage)) {
+        let dmg = e.damage * (1 - (stats.damageReduction || 0));
+        if (player.specialShield > 0) dmg *= 0.5;
+        if (player.takeDamage(dmg)) {
           player.contactCooldown = 0.4;
           spawnParticles(particles, player.x, player.y, '#f44', 6);
           if (player.hp <= 0) onGameOver();
@@ -547,6 +607,7 @@ function updatePlaying(dt) {
  * @param {object} enemy
  */
 function onEnemyKill(enemy) {
+  chargeSpecialMeter(stats, player, 'kill');
   kills++;
   addExp(enemy.exp);
   spawnParticles(particles, enemy.x, enemy.y, enemy === bossRef ? '#f84' : enemy.color, 12);
@@ -581,7 +642,7 @@ function draw() {
   enemyBullets.forEach((b) => b.draw(ctx, camera, cx, cy));
   bullets.forEach((b) => b.draw(ctx, camera, cx, cy));
   orbits.forEach((o) => o.draw(ctx, camera, cx, cy));
-  player.draw(ctx, cx, cy);
+  player.draw(ctx, cx, cy, playerColor);
 
   if (state === STATES.PLAYING || state === STATES.BOSS) {
     const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
@@ -673,12 +734,19 @@ canvas.addEventListener('mousemove', (e) => {
 /** 우클릭 컨텍스트 메뉴 방지 */
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-/** 키보드 입력: WASD 등 이동 키 추적 */
-window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+/** 키보드 입력: WASD 등 이동 키 추적 · Space 특수 능력 */
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    tryUseSpecial();
+  }
+  keys.add(e.key.toLowerCase());
+});
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
 /** 로비: 게임 시작 */
 document.getElementById('startBtn').addEventListener('click', startGame);
+specialBtn?.addEventListener('click', tryUseSpecial);
 
 /** 승리 화면: 로비로 복귀 */
 document.getElementById('returnLobbyBtn').addEventListener('click', () => setState(STATES.LOBBY));

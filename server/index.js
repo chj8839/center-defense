@@ -170,7 +170,7 @@ wss.on('connection', (ws) => {
       // 새 방 생성 — 기존 방이 있으면 먼저 퇴장, 호스트로 4자리 코드 방 개설
       case 'createRoom': {
         if (room) rooms.leave(playerId);
-        const r = rooms.createRoom(playerId, msg.name || 'Player');
+        const r = rooms.createRoom(playerId, msg.name || 'Player', msg.characterId);
         attachRoomHandlers(r);
         r.broadcast = () => broadcastLobby(r);
         send(ws, { type: 'roomCreated', code: r.code, ...r.getLobbyInfo() });
@@ -179,7 +179,7 @@ wss.on('connection', (ws) => {
       // 방 코드로 참가 — 대기 중인 방만 가능, 실패 시 에러 메시지
       case 'joinRoom': {
         if (room) rooms.leave(playerId);
-        const r = rooms.joinRoom(playerId, msg.code, msg.name || 'Player');
+        const r = rooms.joinRoom(playerId, msg.code, msg.name || 'Player', msg.characterId);
         if (!r) {
           send(ws, { type: 'error', message: '방을 찾을 수 없거나 이미 시작됐습니다.' });
           break;
@@ -205,6 +205,12 @@ wss.on('connection', (ws) => {
         }
         room.broadcast = () => broadcastRoom(room);
         broadcastRoom(room);
+        break;
+      }
+      case 'setCharacter': {
+        if (!room || room.state !== 'waiting') break;
+        room.setCharacter(playerId, msg.characterId);
+        broadcastLobby(room);
         break;
       }
       // 플레이어 입력(이동·조준) — playing 상태에서만 room.setInput에 반영

@@ -23,6 +23,8 @@
         <button id="startBtn" class="btn primary">솔로 플레이</button>
         <a href="multi.html" class="btn" style="display:inline-block;text-decoration:none;margin:0.25rem">멀티플레이 (1~4인)</a>
         <div class="help">
+          <p><strong>캐릭터</strong></p>
+          <p>흡혈귀 · 사수 · 수호자 — 적 타격으로 특수 게이지 충전 (Space / 버튼)</p>
           <p><strong>조작</strong></p>
           <p>마우스 — 조준 &amp; 자동 사격</p>
           <p>WASD — 이동 (배경 스크롤)</p>
@@ -35,14 +37,25 @@
       </div>
     </div>
 
+    <!-- 캐릭터 선택 (솔로) -->
+    <div id="characterSelect" class="overlay hidden">
+      <div class="panel wide">
+        <h2>캐릭터 선택</h2>
+        <p class="subtitle">적을 공격해 특수 게이지를 채운 뒤 Space(또는 특수 버튼)로 발동</p>
+        <div id="characterChoices" class="choices character-choices"></div>
+      </div>
+    </div>
+
     <!-- HUD -->
     <div id="hud" class="hidden">
       <div class="hud-top">
         <div class="hud-item">HP <div class="bar"><div id="hpBar" class="bar-fill hp"></div></div></div>
         <div class="hud-item">EXP <div class="bar"><div id="expBar" class="bar-fill exp"></div></div></div>
+        <div class="hud-item special-hud">특수 <div class="bar"><div id="specialBar" class="bar-fill special"></div></div></div>
         <div class="hud-item">LV <span id="levelText">1</span></div>
         <div class="hud-item">킬 <span id="killText">0</span></div>
       </div>
+      <button id="specialBtn" class="special-btn hidden" type="button" title="특수 능력">✦</button>
       <div id="augmentList" class="augment-list"></div>
     </div>
 

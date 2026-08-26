@@ -15,6 +15,9 @@
 import { CONFIG } from './config.js';
 import { NetworkClient } from './network.js';
 import { WS_URL } from './network-config.js';
+import {
+  renderCharacterCards, loadSelectedCharacter, saveSelectedCharacter, getCharacter,
+} from './characters.js';
 import { touchControls } from './touchControls.js';
 import {
   drawWorldBackground, drawRemotePlayer, drawEnemySnapshot, worldToScreen, spawnParticles,
@@ -71,6 +74,14 @@ const gameOverSubtitle = document.getElementById('gameOverSubtitle');
 const lobbyBtn = document.getElementById('lobbyBtn');
 /** @type {HTMLElement} 게임 포기/로비 복귀 버튼 */
 const leaveGameBtn = document.getElementById('leaveGameBtn');
+const specialBar = document.getElementById('specialBar');
+const specialBtn = document.getElementById('specialBtn');
+const characterChoices = document.getElementById('characterChoices');
+
+/** @type {string} 멀티 로비에서 선택한 캐릭터 */
+let selectedCharacterId = loadSelectedCharacter();
+/** @type {boolean} 다음 입력 패킷에 특수 사용 플래그 */
+let specialQueued = false;
 
 /** @type {{ x: number, y: number }} 마우스/에임 화면 좌표 */
 const mouse = { x: 0, y: 0 };
@@ -260,9 +271,19 @@ function updateHudFromState() {
     .map((t) => `<span class="augment-tag">${t}</span>`)
     .join('');
 
+  if (specialBar && me.specialMeterMax) {
+    specialBar.style.width = `${((me.specialMeter || 0) / me.specialMeterMax) * 100}%`;
+  }
+  if (specialBtn) {
+    const ready = (me.specialMeter || 0) >= (me.specialMeterMax || 100);
+    specialBtn.classList.toggle('ready', ready);
+    specialBtn.classList.toggle('hidden', gameState?.roomState !== 'playing');
+    if (me.characterName) specialBtn.title = `${me.characterName} 특수 (Space)`;
+  }
+
   teamHud.innerHTML = gameState.players
     .filter((p) => p.id !== net.playerId)
-    .map((p) => `<span class="team-tag" style="border-color:${p.color}">${p.name} Lv${p.level}${p.alive ? '' : ' 💀'}</span>`)
+    .map((p) => `<span class="team-tag" style="border-color:${p.color}">${p.name}${p.characterName ? ` · ${p.characterName}` : ''} Lv${p.level}${p.alive ? '' : ' 💀'}</span>`)
     .join('');
 }
 
@@ -672,7 +693,7 @@ function onLobby(info) {
   document.getElementById('roomCodeDisplay').textContent = info.code;
   const list = document.getElementById('playerList');
   list.innerHTML = info.players.map((p) =>
-    `<li><span style="color:${p.color}">●</span> ${p.name}${p.id === info.hostId ? ' (방장)' : ''}</li>`
+    `<li><span style="color:${p.color}">●</span> ${p.name}${p.characterName ? ` · ${p.characterName}` : ''}${p.id === info.hostId ? ' (방장)' : ''}</li>`
   ).join('');
   const canStart = isHost && !info.waitingOthers && info.state !== 'playing';
   startMultiBtn.classList.toggle('hidden', !canStart);
@@ -799,17 +820,29 @@ function draw() {
  * 키보드·터치 입력을 합쳐 이동 플래그와 조준 각도를 반환합니다.
  * @returns {{ up: boolean, down: boolean, left: boolean, right: boolean, angle: number }}
  */
+function queueSpecial() {
+  const me = getLocalPlayer();
+  if (!me?.alive || spectating) return;
+  if (gameState?.roomState !== 'playing') return;
+  specialQueued = true;
+}
+
 function getInputState() {
   const touchKeys = touchControls.getKeys();
   const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
   const angle = Math.atan2(aim.y - cy, aim.x - cx);
-  return {
+  const input = {
     up: keys.up || touchKeys.up,
     down: keys.down || touchKeys.down,
     left: keys.left || touchKeys.left,
     right: keys.right || touchKeys.right,
     angle,
   };
+  if (specialQueued) {
+    input.useSpecial = true;
+    specialQueued = false;
+  }
+  return input;
 }
 
 /**
@@ -901,7 +934,7 @@ reconnectBtn.addEventListener('click', () => {
 /** 방 만들기: 플레이어 이름으로 createRoom 요청 */
 document.getElementById('createRoomBtn').addEventListener('click', () => {
   const name = document.getElementById('playerName').value.trim() || 'Player';
-  net.createRoom(name);
+  net.createRoom(name, selectedCharacterId);
 });
 
 /** 방 참가: 4자리 코드·이름으로 joinRoom 요청 */
@@ -912,8 +945,20 @@ document.getElementById('joinRoomBtn').addEventListener('click', () => {
     multiStatus.textContent = '4자리 방 코드를 입력하세요.';
     return;
   }
-  net.joinRoom(code, name);
+  net.joinRoom(code, name, selectedCharacterId);
 });
+
+specialBtn?.addEventListener('click', queueSpecial);
+
+function initCharacterSelect() {
+  if (!characterChoices) return;
+  renderCharacterCards(characterChoices, (id) => {
+    selectedCharacterId = id;
+    saveSelectedCharacter(id);
+    if (inRoom) net.setCharacter(id);
+  }, selectedCharacterId, { selectOnly: true });
+}
+initCharacterSelect();
 
 /** 게임 시작(방장): 서버 확인 후 onState에서 HUD 전환 */
 startMultiBtn.addEventListener('click', startMultiGame);
@@ -950,6 +995,10 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /** 키보드 이동 입력(keydown) */
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    queueSpecial();
+  }
   const k = e.key.toLowerCase();
   if (k === 'w' || k === 'arrowup') keys.up = true;
   if (k === 's' || k === 'arrowdown') keys.down = true;

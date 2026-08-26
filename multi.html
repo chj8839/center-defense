@@ -17,6 +17,10 @@
         <p class="subtitle">1~4인 온라인 · 모바일: 왼쪽 이동 · 오른쪽 조준 조이스틱</p>
         <div id="multiLobbyActions">
           <input id="playerName" class="input-field" type="text" maxlength="12" placeholder="닉네임" value="">
+          <div class="character-select-inline">
+            <p class="subtitle" style="margin:0.5rem 0 0.25rem">캐릭터 선택</p>
+            <div id="characterChoices" class="choices character-choices compact"></div>
+          </div>
           <div class="multi-actions">
             <button id="createRoomBtn" class="btn primary">방 만들기</button>
             <div class="join-row">
@@ -43,6 +47,7 @@
       <div class="hud-top">
         <div class="hud-item">HP <div class="bar"><div id="hpBar" class="bar-fill hp"></div></div></div>
         <div class="hud-item">EXP <div class="bar"><div id="expBar" class="bar-fill exp"></div></div></div>
+        <div class="hud-item special-hud">특수 <div class="bar"><div id="specialBar" class="bar-fill special"></div></div></div>
         <div class="hud-item">LV <span id="levelText">1</span></div>
         <div class="hud-item">킬 <span id="killText">0</span></div>
         <button id="augmentPickBtn" class="augment-pick-btn hidden" type="button">✨ 증강 <span id="augmentPendingCount">0</span></button>
@@ -50,6 +55,7 @@
       </div>
       <div id="augmentList" class="augment-list"></div>
       <div id="teamHud" class="team-hud"></div>
+      <button id="specialBtn" class="special-btn hidden" type="button" title="특수 능력">✦</button>
     </div>
 
     <!-- 증강 선택 (수동 열기) -->

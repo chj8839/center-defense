@@ -4,6 +4,7 @@
  * - 동일 증강 중복 선택 가능 (maxTier까지)
  */
 
+import { getCharacter, SPECIAL_AUGMENTS } from './characters.js';
 /** 증강 목록 (id, 이름, 효과, 최대 티어) */
 export const AUGMENTS = [
   {
@@ -120,23 +121,33 @@ export const AUGMENTS = [
 ];
 
 /** 플레이어 초기 스탯 객체 생성 */
-export function createStats() {
+export function createStats(characterId = 'gunner') {
   return {
-    damageMult: 1,       // 데미지 배율
-    fireRateMult: 1,     // 발사 속도 배율
-    bulletSpeedMult: 1,  // 탄환 속도 배율
-    bulletCount: 0,      // 추가 탄환 수
-    pierce: 0,           // 관통 횟수
-    critChance: 0,       // 추가 치명타 확률
-    critMult: 0,         // 추가 치명타 배율
-    maxHpBonus: 0,       // 최대 HP 보너스
-    regen: 0,            // 초당 HP 회복
-    expMult: 1,          // EXP 획득 배율
-    moveRadius: 0,       // (미사용 예약)
-    moveSpeedMult: 1,    // 이동 속도 배율
-    knockbackMult: 1,    // 넉백 배율
-    orbitCount: 0,       // 오비탈 개수
-    picked: {},          // { augmentId: tier } 선택 이력
+    characterId: getCharacter(characterId).id,
+    damageMult: 1,
+    fireRateMult: 1,
+    bulletSpeedMult: 1,
+    bulletCount: 0,
+    pierce: 0,
+    critChance: 0,
+    critMult: 0,
+    maxHpBonus: 0,
+    regen: 0,
+    expMult: 1,
+    moveRadius: 0,
+    moveSpeedMult: 1,
+    knockbackMult: 1,
+    orbitCount: 0,
+    specialChargeMult: 1,
+    specialPowerMult: 1,
+    specialMeterReduction: 0,
+    specialExtraBullets: 0,
+    specialRadiusMult: 1,
+    specialLifeStealBonus: 0,
+    meleeDamageMult: 1,
+    lifeSteal: 0,
+    damageReduction: 0,
+    picked: {},
   };
 }
 
@@ -146,9 +157,12 @@ export function createStats() {
  * @param {number} count - 후보 개수 (기본 3)
  */
 export function getRandomChoices(stats, count = 3) {
-  const available = AUGMENTS.filter((a) => {
+  const pool = [...AUGMENTS, ...SPECIAL_AUGMENTS];
+  const available = pool.filter((a) => {
     const tier = stats.picked[a.id] || 0;
-    return tier < a.maxTier;
+    if (tier >= a.maxTier) return false;
+    if (a.characterId && a.characterId !== stats.characterId) return false;
+    return true;
   });
 
   const shuffled = [...available].sort(() => Math.random() - 0.5);
@@ -167,7 +181,7 @@ export function applyAugment(augment, stats, player) {
 /** HUD에 표시할 증강 태그 문자열 배열 */
 export function getAugmentTags(stats) {
   return Object.entries(stats.picked).map(([id, tier]) => {
-    const aug = AUGMENTS.find((a) => a.id === id);
+    const aug = AUGMENTS.find((a) => a.id === id) || SPECIAL_AUGMENTS.find((a) => a.id === id);
     return aug ? `${aug.name} Lv${tier}` : id;
   });
 }
