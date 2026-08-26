@@ -104,9 +104,9 @@ export const WEAPON_AUGMENTS = [
       { desc: '흡혈 +6%', apply: (s) => { s.lifeSteal += 0.06; } },
       { desc: '근접 공격력 +20%', apply: (s) => { s.meleeDamageMult *= 1.2; } },
       { desc: '특수 범위 +25%, 흡혈 +8%', apply: (s) => { s.specialRadiusMult *= 1.25; s.lifeSteal += 0.08; } },
-      { desc: '【각성】 전 범위 +55%, 흡혈 40%, 특수 흡혈 극대', apply: (s) => {
-        s.meleeRangeMult *= 1.55;
-        s.meleeArcMult *= 1.55;
+      { desc: '【각성】 전 범위 +150%, 흡혈 40%, 특수 흡혈 극대', apply: (s) => {
+        s.meleeRangeMult *= 2.5;
+        s.meleeArcMult *= 2.5;
         s.lifeSteal = Math.min(0.65, s.lifeSteal + 0.25);
         s.specialLifeStealBonus += 0.35;
         s.specialRadiusMult *= 1.35;
