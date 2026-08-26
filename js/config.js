@@ -38,8 +38,10 @@ export const CONFIG = {
     baseDamage: 10,
     baseExp: 15,
     spawnInterval: 1.2,
-    spawnIntervalMin: 0.35,
-    maxOnScreen: 45,
+    spawnIntervalMid: 0.28,
+    spawnIntervalMin: 0.08,
+    spawnIntervalEarlyPerLevel: 0.07,
+    spawnIntervalLatePerLevel: 0.00235,
     spawnMargin: 100,
   },
 
@@ -252,10 +254,10 @@ export const CONFIG = {
     },
   ],
 
-  /** 레벨업에 필요한 경험치 계산용 상수 */
+  /** 레벨업에 필요한 경험치 — baseToLevel + perLevel × (레벨−1) 선형 증가 */
   EXP: {
     baseToLevel: 80,
-    levelScale: 1.35,
+    perLevel: 15,
   },
 
   /** 파티클(이펙트) 시스템 제한 */
@@ -265,12 +267,33 @@ export const CONFIG = {
 };
 
 /**
- * 해당 레벨에 도달하기 위해 필요한 누적 경험치량을 계산합니다.
- * @param {number} level - 대상 레벨 (1 이상)
- * @returns {number} 해당 레벨까지 필요한 경험치 (내림 처리)
+ * 다음 레벨까지 필요한 경험치량 (선형: base + perLevel × (level−1))
+ * @param {number} level - 현재 레벨 (1 이상)
+ * @returns {number} 해당 레벨에서 한 단계 올리는 데 필요한 EXP
  */
 export function expForLevel(level) {
-  return Math.floor(CONFIG.EXP.baseToLevel * Math.pow(CONFIG.EXP.levelScale, level - 1));
+  const { baseToLevel, perLevel } = CONFIG.EXP;
+  return Math.floor(baseToLevel + perLevel * (level - 1));
+}
+
+/**
+ * 레벨에 따른 일반 적 스폰 간격(초) — 레벨↑면 더 자주 스폰
+ * Lv.1~15: 1.2초→0.28초, Lv.16~100: 0.28초→0.08초까지 추가 단축
+ * @param {number} level - 현재 레벨 (1 이상)
+ * @returns {number} 다음 적 스폰까지 대기 시간(초)
+ */
+export function spawnIntervalForLevel(level) {
+  const lvl = Math.max(1, level);
+  const {
+    spawnInterval, spawnIntervalMid, spawnIntervalMin,
+    spawnIntervalEarlyPerLevel, spawnIntervalLatePerLevel,
+  } = CONFIG.ENEMY;
+  if (lvl <= 15) {
+    const reduction = Math.min(lvl * spawnIntervalEarlyPerLevel, spawnInterval - spawnIntervalMid);
+    return Math.max(spawnIntervalMid, spawnInterval - reduction);
+  }
+  const lateReduction = (lvl - 15) * spawnIntervalLatePerLevel;
+  return Math.max(spawnIntervalMin, spawnIntervalMid - lateReduction);
 }
 
 /**
@@ -312,10 +335,10 @@ export function getBossType(level) {
 export function getLevelMults(level) {
   const l = Math.max(1, level);
   return {
-    hp: 1 + (l - 1) * 0.12,
-    speed: 1 + (l - 1) * 0.04,
-    damage: 1 + (l - 1) * 0.08,
-    attackSpeed: 1 + (l - 1) * 0.05,
+    hp: 1 + (l - 1) * 0.13,
+    speed: 1 + (l - 1) * 0.045,
+    damage: 1 + (l - 1) * 0.09,
+    attackSpeed: 1 + (l - 1) * 0.055,
   };
 }
 

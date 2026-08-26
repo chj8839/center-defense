@@ -14,7 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
-import { RoomManager } from './gameRoom.js';
+import { RoomManager, TICK_RATE } from './gameRoom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -191,11 +191,20 @@ wss.on('connection', (ws) => {
       }
       // 게임 시작 — 호스트만 가능, 성공 시 게임 상태 브로드캐스트로 전환
       case 'startGame': {
-        if (!room || room.hostId !== playerId) break;
-        if (room.startGame()) {
-          room.broadcast = () => broadcastRoom(room);
-          broadcastRoom(room);
+        if (!room) {
+          send(ws, { type: 'error', message: '방에 입장되어 있지 않습니다.' });
+          break;
         }
+        if (room.hostId !== playerId) {
+          send(ws, { type: 'error', message: '방장만 게임을 시작할 수 있습니다.' });
+          break;
+        }
+        if (!room.startGame()) {
+          send(ws, { type: 'error', message: '게임을 시작할 수 없습니다.' });
+          break;
+        }
+        room.broadcast = () => broadcastRoom(room);
+        broadcastRoom(room);
         break;
       }
       // 플레이어 입력(이동·조준) — playing 상태에서만 room.setInput에 반영
@@ -271,7 +280,7 @@ setInterval(() => {
   }
 }, 30000);
 
-/** 게임 틱 브로드캐스트 — 20Hz(50ms)로 playing 방의 getStateFor를 각 클라이언트에 전송 */
+/** 게임 틱 브로드캐스트 — TICK_RATE(Hz)로 playing 방의 getStateFor를 각 클라이언트에 전송 */
 setInterval(() => {
   for (const room of rooms.getPlayingRooms()) {
     for (const [pid] of room.players) {
@@ -279,7 +288,7 @@ setInterval(() => {
       if (ws) send(ws, room.getStateFor(pid));
     }
   }
-}, 1000 / 20);
+}, 1000 / TICK_RATE);
 
 server.listen(PORT, () => {
   console.log(`Center Defense server on port ${PORT}`);

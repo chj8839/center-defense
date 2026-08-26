@@ -9,7 +9,7 @@
  * 5. BOSS_WARNING → BOSS: 보스 등장 및 전투, 처치 시 다음 구간 또는 VICTORY
  * 6. MAX_LEVEL 클리어 → VICTORY / HP 0 → GAME_OVER → 저장 후 로비 복귀 가능
  */
-import { CONFIG, STATES, expForLevel, loadSave, writeSave, isBossLevel, getBossType } from './config.js';
+import { CONFIG, STATES, expForLevel, spawnIntervalForLevel, loadSave, writeSave, isBossLevel, getBossType } from './config.js';
 import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './augments.js';
 import { touchControls } from './touchControls.js';
 import {
@@ -351,15 +351,6 @@ function updateAugmentList() {
 }
 
 /**
- * 현재 레벨에 따른 일반 적 스폰 간격(초)을 계산한다.
- * @returns {number}
- */
-function getSpawnInterval() {
-  const reduction = Math.min(level * 0.06, CONFIG.ENEMY.spawnInterval - CONFIG.ENEMY.spawnIntervalMin);
-  return Math.max(CONFIG.ENEMY.spawnIntervalMin, CONFIG.ENEMY.spawnInterval - reduction);
-}
-
-/**
  * 월드 좌표에 잠시 떠오르는 텍스트(크리티컬·EXP 등)를 추가한다.
  * @param {number} wx
  * @param {number} wy
@@ -425,17 +416,21 @@ function getEffectiveKeys() {
 /**
  * PLAYING/BOSS 프레임: 이동·사격·스폰·충돌·파티클·HUD를 한 틱 갱신한다.
  * @param {number} dt 델타 시간(초, 상한 0.05)
+ * @param {{ allowPlayer?: boolean }} [options] allowPlayer=false면 증강 선택 중 보스 전투만 진행
  */
-function updatePlaying(dt) {
+function updatePlaying(dt, options = {}) {
+  const allowPlayer = options.allowPlayer !== false;
   const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
   worldMouse.x = aim.x - cx + camera.x;
   worldMouse.y = aim.y - cy + camera.y;
 
-  player.update(dt, worldMouse, stats, getEffectiveKeys());
-  updateCamera();
+  if (allowPlayer) {
+    player.update(dt, worldMouse, stats, getEffectiveKeys());
+    updateCamera();
+  }
   player.contactCooldown = Math.max(0, (player.contactCooldown || 0) - dt);
 
-  if (player.canFire(dt, stats)) {
+  if (allowPlayer && player.canFire(dt, stats)) {
     bullets.push(...fireBullets(player, stats));
     getPointBlankHits(player, stats, enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
       if (enemy.dead) return;
@@ -444,18 +439,19 @@ function updatePlaying(dt) {
     });
   }
 
-  getMeleeHits(player, stats, enemies, dt).forEach(({ enemy, amount, angle, knockback }) => {
-    if (enemy.dead) return;
-    applyEnemyHit(enemy, amount, angle, knockback);
-  });
-
-  orbits.forEach((o) => o.update(dt));
+  if (allowPlayer) {
+    getMeleeHits(player, stats, enemies, dt).forEach(({ enemy, amount, angle, knockback }) => {
+      if (enemy.dead) return;
+      applyEnemyHit(enemy, amount, angle, knockback);
+    });
+    orbits.forEach((o) => o.update(dt));
+  }
 
   if (state === STATES.PLAYING) {
     spawnTimer -= dt;
-    if (spawnTimer <= 0 && enemies.length < CONFIG.ENEMY.maxOnScreen) {
+    if (spawnTimer <= 0) {
       enemies.push(spawnEnemy(player, w, h, level));
-      spawnTimer = getSpawnInterval();
+      spawnTimer = spawnIntervalForLevel(level);
     }
   }
 
@@ -477,11 +473,7 @@ function updatePlaying(dt) {
 
   enemies.forEach((e) => {
     if (!e.dead) {
-      if (e.typeKey === 'boss') {
-        e.update(dt, player.x, player.y, enemyBullets);
-      } else {
-        e.update(dt, player.x, player.y, enemyBullets);
-      }
+      e.update(dt, player.x, player.y, enemyBullets);
     }
   });
   separateEnemiesFromPlayer(player, enemies);
@@ -638,6 +630,8 @@ function loop(timestamp) {
 
     if (state === STATES.PLAYING || state === STATES.BOSS) {
       updatePlaying(dt);
+    } else if (state === STATES.LEVEL_UP && bossRef) {
+      updatePlaying(dt, { allowPlayer: false });
     } else if (state === STATES.BOSS_WARNING) {
       bossWarningTimer -= dt;
       if (bossWarningTimer <= 0) {

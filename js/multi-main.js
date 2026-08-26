@@ -105,6 +105,13 @@ let lastFrameTime = 0;
 const multiStatus = document.getElementById('multiStatus');
 /** @type {HTMLElement} 서버 재연결 버튼 */
 const reconnectBtn = document.getElementById('reconnectBtn');
+/** @type {HTMLElement} 방장 게임 시작 버튼 */
+const startMultiBtn = document.getElementById('startMultiBtn');
+
+/** 서버 state 브로드캐스트 주기(ms) — gameRoom TICK_RATE와 동기 */
+const SERVER_TICK_MS = 1000 / 30;
+/** @type {number} 마지막 서버 state 수신 시각(performance.now) */
+let lastStateAt = 0;
 
 /** @type {boolean} 증강 선택 패널이 열려 있는지 */
 let augmentPanelOpen = false;
@@ -117,7 +124,7 @@ const particles = [];
 /** @type {object} 렌더 보간용 이전/현재 스냅샷 및 blend 계수 */
 const renderSnap = {
   enemies: [], prevEnemies: [], bullets: [], prevBullets: [],
-  enemyBullets: [], prevEnemyBullets: [], blend: 1,
+  enemyBullets: [], prevEnemyBullets: [], players: [], prevPlayers: [], blend: 1,
 };
 /** @type {Map<string|number, object>} 적 ID → 마지막 위치(사망 파티클 감지용) */
 const enemySnapshots = new Map();
@@ -422,14 +429,22 @@ function syncLocalSim(me) {
     return;
   }
   const err = Math.hypot(me.x - localSim.x, me.y - localSim.y);
-  if (!localSim.ready || err > 120) {
+  if (!localSim.ready) {
     localSim.x = me.x;
     localSim.y = me.y;
     localSim.angle = me.angle;
     localSim.ready = true;
-  } else if (err > 4) {
-    localSim.x += (me.x - localSim.x) * 0.2;
-    localSim.y += (me.y - localSim.y) * 0.2;
+    return;
+  }
+  if (err > 120) {
+    localSim.x = me.x;
+    localSim.y = me.y;
+    localSim.angle = me.angle;
+    return;
+  }
+  if (err > 28) {
+    localSim.x += (me.x - localSim.x) * 0.12;
+    localSim.y += (me.y - localSim.y) * 0.12;
   }
 }
 
@@ -522,6 +537,23 @@ function getInterpolatedBullets(list, prevList) {
   });
 }
 
+function getInterpolatedPlayers() {
+  if (!gameState?.players) return [];
+  const t = renderSnap.blend;
+  const prevMap = new Map((renderSnap.prevPlayers || []).map((p) => [p.id, p]));
+  return gameState.players.map((p) => {
+    if (p.id === net.playerId) return p;
+    const prev = prevMap.get(p.id);
+    if (!prev) return p;
+    return {
+      ...p,
+      x: lerpVal(prev.x, p.x, t),
+      y: lerpVal(prev.y, p.y, t),
+      angle: lerpVal(prev.angle, p.angle, t),
+    };
+  });
+}
+
 /**
  * 서버 game state 수신 핸들러: 보간 스냅샷·카메라·HUD·오버레이를 갱신합니다.
  * @param {object} state - 서버에서 받은 전체 게임 상태
@@ -531,14 +563,21 @@ function onState(state) {
   if (state.roomState !== 'playing') return;
 
   hide(multiLobby);
+  show(hud);
+  touchControls.setActive(true);
+  updateHudSafeTop();
+
   detectEnemyDeaths(state.enemies);
   renderSnap.prevEnemies = renderSnap.enemies.length ? renderSnap.enemies : state.enemies;
   renderSnap.prevBullets = renderSnap.bullets.length ? renderSnap.bullets : state.bullets;
   renderSnap.prevEnemyBullets = renderSnap.enemyBullets?.length
     ? renderSnap.enemyBullets : state.enemyBullets;
+  renderSnap.prevPlayers = renderSnap.players.length ? renderSnap.players : state.players;
   renderSnap.enemies = state.enemies;
   renderSnap.bullets = state.bullets;
   renderSnap.enemyBullets = state.enemyBullets;
+  renderSnap.players = state.players;
+  lastStateAt = performance.now();
   renderSnap.blend = 0;
 
   const me = getLocalPlayer();
@@ -610,6 +649,8 @@ function resetClientForLobby() {
   renderSnap.prevBullets = [];
   renderSnap.enemyBullets = [];
   renderSnap.prevEnemyBullets = [];
+  renderSnap.players = [];
+  renderSnap.prevPlayers = [];
   closeAugmentPanel();
   hideBlockingOverlays();
   hide(hud);
@@ -633,10 +674,28 @@ function onLobby(info) {
   list.innerHTML = info.players.map((p) =>
     `<li><span style="color:${p.color}">●</span> ${p.name}${p.id === info.hostId ? ' (방장)' : ''}</li>`
   ).join('');
-  document.getElementById('startMultiBtn').classList.toggle('hidden', !isHost || info.waitingOthers);
+  const canStart = isHost && !info.waitingOthers && info.state !== 'playing';
+  startMultiBtn.classList.toggle('hidden', !canStart);
+  startMultiBtn.disabled = !canStart;
   multiStatus.textContent = info.waitingOthers
     ? '다른 플레이어 전투 중 · 대기 중'
-    : `${info.players.length}/4명 · 방장이 시작합니다`;
+    : isHost
+      ? `${info.players.length}/4명 · 게임 시작을 누르세요`
+      : `${info.players.length}/4명 · 방장이 시작합니다`;
+}
+
+/** 방장: 서버에 게임 시작 요청 (실제 전환은 onState에서 처리) */
+function startMultiGame() {
+  if (!isHost) {
+    multiStatus.textContent = '방장만 게임을 시작할 수 있습니다.';
+    return;
+  }
+  if (!net.playerId) {
+    multiStatus.textContent = '서버 연결을 기다리는 중입니다.';
+    return;
+  }
+  if (!net.startGame()) return;
+  multiStatus.textContent = '게임 시작 중...';
 }
 
 /**
@@ -695,7 +754,7 @@ function draw() {
 
   particles.forEach((p) => p.draw(ctx, camera, cx, cy));
 
-  for (const p of gameState.players) {
+  for (const p of getInterpolatedPlayers()) {
     if (p.id === net.playerId && p.alive && !spectating) {
       const pang = useLocal ? localSim.angle : p.angle;
       ctx.save();
@@ -726,7 +785,8 @@ function draw() {
     ctx.stroke();
   }
 
-  const myBoss = gameState.enemies.find((e) => e.bossName && me?.gameState === 'boss');
+  const myBoss = gameState.enemies.find((e) => e.ownerId === net.playerId)
+    || gameState.enemies.find((e) => e.bossName && me?.gameState === 'boss');
   if (myBoss) {
     ctx.fillStyle = '#f66';
     ctx.font = 'bold 16px sans-serif';
@@ -772,7 +832,10 @@ function loop(timestamp) {
   const dt = lastFrameTime ? Math.min((timestamp - lastFrameTime) / 1000, 0.05) : 0;
   lastFrameTime = timestamp;
 
-  renderSnap.blend = Math.min(1, renderSnap.blend + dt * 20);
+  if (lastStateAt > 0) {
+    renderSnap.blend = Math.min(1, (performance.now() - lastStateAt) / SERVER_TICK_MS);
+  }
+
   particles.forEach((p) => p.update(dt));
   for (let i = particles.length - 1; i >= 0; i--) {
     if (particles[i].life <= 0) particles.splice(i, 1);
@@ -852,14 +915,9 @@ document.getElementById('joinRoomBtn').addEventListener('click', () => {
   net.joinRoom(code, name);
 });
 
-/** 게임 시작(방장): startGame 후 HUD·터치 입력 활성화 */
-document.getElementById('startMultiBtn').addEventListener('click', () => {
-  net.startGame();
-  hide(multiLobby);
-  show(hud);
-  touchControls.setActive(true);
-  updateHudSafeTop();
-});
+/** 게임 시작(방장): 서버 확인 후 onState에서 HUD 전환 */
+startMultiBtn.addEventListener('click', startMultiGame);
+bindMobileTap(startMultiBtn, startMultiGame);
 
 /** 로비/게임 오버 등에서 방 나가기 */
 bindMobileTap(document.getElementById('leaveRoomBtn'), exitRoom);

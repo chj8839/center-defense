@@ -117,7 +117,11 @@ export class NetworkClient {
 
   /** 방장: 게임 시작 */
   startGame() {
-    this.send({ type: 'startGame' });
+    if (!this.send({ type: 'startGame' })) {
+      this.emit('error', { message: '서버에 연결되어 있지 않습니다.' });
+      return false;
+    }
+    return true;
   }
 
   /** 이동·조준 입력 전송 */

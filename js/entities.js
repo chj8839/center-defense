@@ -298,14 +298,21 @@ export class Enemy {
 
 /** 보스 — Enemy 확장, 패턴별 공격·2페이즈·미니언 타이머 */
 export class Boss extends Enemy {
-  constructor(x, y, level) {
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} level
+   * @param {{ bossType?: object, ownerId?: string }} [options]
+   */
+  constructor(x, y, level, options = {}) {
     super(x, y, 'tank', level);
     const lm = getLevelMults(level);
     const tier = getBossTier(level);
-    const bossType = getBossType(level);
+    const bossType = options.bossType || getBossType(level);
     const tierScale = 1 + (tier - 1) * 0.55;
 
     this.typeKey = 'boss';
+    this.ownerId = options.ownerId || null;
     this.bossType = bossType;
     this.bossName = bossType.name;
     this.bossDesc = bossType.desc;
@@ -445,12 +452,12 @@ export class Boss extends Enemy {
     }
   }
 
-  /** 넉백·페이즈2 전환·거리 유지 이동·공격 쿨다운 처리 */
+  /** 넉백·페이즈2 전환·거리 유지 이동·공격 쿨다운 처리 (미니언 스폰은 게임 루프에서 처리) */
   update(dt, targetX, targetY, enemyBullets) {
+    if (this.flash > 0) this.flash -= dt;
     this.targetX = targetX;
     this.targetY = targetY;
     this.pulse += dt * 3;
-    this.minionTimer -= dt;
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     this.chargeTimer = Math.max(0, this.chargeTimer - dt);
 
@@ -694,8 +701,8 @@ export function spawnEnemy(player, w, h, level) {
 }
 
 /** 플레이어 위쪽 고정 거리에 보스 생성 */
-export function spawnBoss(player, level) {
-  return new Boss(player.x, player.y - 500, level);
+export function spawnBoss(player, level, options = {}) {
+  return new Boss(player.x, player.y - 500, level, options);
 }
 
 /** 플레이어 위치·조준각 기준 다중 총알 생성 (스프레드 적용) */

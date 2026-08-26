@@ -478,6 +478,17 @@ h2 {
   box-shadow: 0 0 16px rgba(68, 136, 255, 0.35);
 }
 
+/* 공격(조준) 조이스틱 — 이동 조이스틱과 구분되는 붉은 톤 */
+.touch-aim-stick-base {
+  border-color: rgba(255, 136, 102, 0.35);
+}
+
+.touch-aim-stick-knob {
+  background: rgba(255, 120, 80, 0.5);
+  border-color: rgba(255, 180, 140, 0.75);
+  box-shadow: 0 0 16px rgba(255, 100, 60, 0.35);
+}
+
 @media (pointer: fine) and (min-width: 901px) {
   .touch-controls:not(.force-show) {
     display: none !important;

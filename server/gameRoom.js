@@ -7,7 +7,7 @@
  * 클라이언트 entities/config/augments 모듈을 서버에서 재사용하여
  * 싱글플레이와 동일한 전투·증강 규칙을 적용합니다.
  */
-import { CONFIG, expForLevel, isBossLevel, getBossType } from '../js/config.js';
+import { CONFIG, expForLevel, spawnIntervalForLevel, isBossLevel, getBossType } from '../js/config.js';
 import { createStats, getRandomChoices, applyAugment, AUGMENTS } from '../js/augments.js';
 import {
   Player, Enemy, Boss, Bullet, EnemyBullet,
@@ -19,7 +19,7 @@ import {
 const PLAYER_COLORS = ['#3af', '#f84', '#4f4', '#fc4'];
 
 /** 게임 시뮬레이션 틱률(Hz) — startGame setInterval 및 서버 브로드캐스트 기준 */
-const TICK_RATE = 20;
+export const TICK_RATE = 30;
 
 /** 적 스폰·시야 계산용 가상 뷰포트 너비 */
 const VIEW_W = 1280;
@@ -48,7 +48,7 @@ function findNearestAlive(enemy, players) {
   let best = null;
   let bestDist = Infinity;
   for (const p of players.values()) {
-    if (!p.alive) continue;
+    if (!p.alive || p.gameState === 'bossWarning') continue;
     const d = Math.hypot(enemy.x - p.player.x, enemy.y - p.player.y);
     if (d < bestDist) {
       bestDist = d;
@@ -56,6 +56,15 @@ function findNearestAlive(enemy, players) {
     }
   }
   return best;
+}
+
+/** 보스는 ownerId 플레이어를 우선 추적, 그 외는 가장 가까운 생존자 */
+function findTargetForEnemy(enemy, players) {
+  if (enemy.typeKey === 'boss' && enemy.ownerId) {
+    const owner = players.get(enemy.ownerId);
+    if (owner?.alive && owner.gameState !== 'bossWarning') return owner;
+  }
+  return findNearestAlive(enemy, players);
 }
 
 /**
@@ -338,9 +347,7 @@ export class GameRoom {
    * @returns {number}
    */
   getSpawnInterval() {
-    const worldLevel = getWorldLevel(this.players);
-    const reduction = Math.min(worldLevel * 0.06, CONFIG.ENEMY.spawnInterval - CONFIG.ENEMY.spawnIntervalMin);
-    return Math.max(CONFIG.ENEMY.spawnIntervalMin, CONFIG.ENEMY.spawnInterval - reduction);
+    return spawnIntervalForLevel(getWorldLevel(this.players));
   }
 
   /**
@@ -348,7 +355,10 @@ export class GameRoom {
    * @param {object} p
    */
   spawnBossFor(p) {
-    const boss = spawnBoss(p.player, p.level);
+    const boss = spawnBoss(p.player, p.level, {
+      ownerId: p.id,
+      bossType: p.pendingBoss || undefined,
+    });
     this.enemies.push(boss);
     p.bossEnemyId = boss.id;
     p.gameState = 'boss';
@@ -469,9 +479,7 @@ export class GameRoom {
    * 방 전체 시뮬레이션 한 틱 — 플레이어·스폰·보스 미니언·탄환·충돌·라운드 종료
    */
   update() {
-    const now = Date.now();
-    const dt = Math.min((now - this.lastTick) / 1000, 0.05);
-    this.lastTick = now;
+    const dt = 1 / TICK_RATE;
     this.tick++;
 
     if (this.state !== 'playing') return;
@@ -491,8 +499,7 @@ export class GameRoom {
     // 일반 적 스폰: 생존+playing/boss 플레이어가 있을 때 spawnTimer 기준, 앵커·월드레벨 반영
     if (anyPlaying) {
       this.spawnTimer -= dt;
-      const maxEnemies = CONFIG.ENEMY.maxOnScreen + this.players.size * 10;
-      if (this.spawnTimer <= 0 && this.enemies.length < maxEnemies) {
+      if (this.spawnTimer <= 0) {
         this.enemies.push(spawnEnemy(fakePlayer, VIEW_W, VIEW_H, worldLevel));
         this.spawnTimer = this.getSpawnInterval();
       }
@@ -519,7 +526,7 @@ export class GameRoom {
 
     for (const e of this.enemies) {
       if (e.dead) continue;
-      const target = findNearestAlive(e, this.players);
+      const target = findTargetForEnemy(e, this.players);
       if (!target) continue;
       e.update(dt, target.player.x, target.player.y, this.enemyBullets);
     }
@@ -556,8 +563,11 @@ export class GameRoom {
     }
 
     this.enemyBullets.forEach((b) => b.update(dt));
+    const bulletCull = Math.max(VIEW_W, VIEW_H) + 400;
     this.enemyBullets = this.enemyBullets.filter((b) => {
       if (b.dead) return false;
+      const anchor = getSpawnAnchor(this.players);
+      if (Math.hypot(b.x - anchor.x, b.y - anchor.y) > bulletCull) return false;
       for (const p of this.players.values()) {
         if (!p.alive || this.isPausedPlayer(p)) continue;
         if (Math.hypot(b.x - p.player.x, b.y - p.player.y) < b.radius + p.player.radius) {
@@ -672,6 +682,8 @@ export class GameRoom {
         bossName: e.bossName || null,
         bossTier: e.bossTier || null,
         phase2: e.phase2 || false,
+        ownerId: e.ownerId || null,
+        pattern: e.pattern || null,
       })),
       bullets: this.bullets.filter((b) => !b.dead).map((b) => ({
         id: b.id, x: b.x, y: b.y, angle: b.angle, ownerId: b.ownerId,
