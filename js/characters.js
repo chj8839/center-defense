@@ -2,7 +2,10 @@
  * 캐릭터 클래스 · 특수 능력(게이지) · 전용 증강 정의
  */
 import { CONFIG } from './config.js';
-import { spawnParticles, Bullet } from './entities.js';
+import {
+  spawnParticles, Bullet, fireBullets, getSlashHits, getPointBlankHits,
+  SlashEffect, RingEffect,
+} from './entities.js';
 
 /** 플레이어블 캐릭터 목록 */
 export const CHARACTERS = [
@@ -12,6 +15,7 @@ export const CHARACTERS = [
     icon: '🩸',
     desc: '근접 흡혈형. 적을 타격해 HP를 회복합니다.',
     color: '#e44',
+    attackStyle: 'melee',
     applyBase: (s, p) => {
       s.damageMult *= 0.88;
       s.moveSpeedMult *= 1.12;
@@ -39,6 +43,7 @@ export const CHARACTERS = [
     icon: '🔫',
     desc: '원거리 화력형. 빠른 사격과 탄막 특수기.',
     color: '#48f',
+    attackStyle: 'ranged',
     applyBase: (s, p) => {
       s.fireRateMult *= 1.38;
       s.bulletSpeedMult *= 1.18;
@@ -62,6 +67,7 @@ export const CHARACTERS = [
     icon: '🛡',
     desc: '탱커형. 높은 체력과 피해 감소.',
     color: '#6a6',
+    attackStyle: 'melee',
     applyBase: (s, p) => {
       s.maxHpBonus += 45;
       s.damageMult *= 0.82;
@@ -147,6 +153,15 @@ export const SPECIAL_AUGMENTS = [
     maxTier: 6,
   },
   {
+    id: 'crushingBlow',
+    name: '강타',
+    icon: '🔨',
+    desc: '근접 공격력 +25%, 넉백 +15%',
+    characterId: 'guardian',
+    apply: (s) => { s.meleeDamageMult *= 1.25; s.knockbackMult *= 1.15; },
+    maxTier: 6,
+  },
+  {
     id: 'ironWall',
     name: '철벽',
     icon: '🛡',
@@ -201,6 +216,142 @@ export function canUseSpecial(stats, player) {
   return (player.specialMeter || 0) >= getSpecialMeterMax(stats);
 }
 
+/** 근접 공격 베기/방패 강타 시각 이펙트 */
+export function createMeleeVisual(actor, characterId, stats) {
+  const opts = getMeleeAttackOpts(getCharacter(characterId), stats || {});
+  if (characterId === 'vampire') {
+    return new SlashEffect(actor.x, actor.y, actor.angle, {
+      range: opts.range, arc: opts.arc, color: '#f44', innerColor: '#faa', width: 12,
+    });
+  }
+  return new SlashEffect(actor.x, actor.y, actor.angle, {
+    range: opts.range, arc: opts.arc, color: '#9c9', innerColor: '#dfd', width: 16,
+  });
+}
+
+/** 캐릭터 기본값 + 증강 반영된 근접 공격 수치 */
+export function getMeleeAttackOpts(char, stats) {
+  const base = char.id === 'vampire'
+    ? { range: 78, arc: 1.15, damageMult: 1, knockbackMult: 1 }
+    : { range: 62, arc: 1.45, damageMult: 1.1, knockbackMult: 1.35 };
+  return {
+    ...base,
+    range: base.range * (stats.meleeRangeMult || 1),
+    arc: base.arc * (stats.meleeArcMult || 1),
+  };
+}
+
+/** 네트워크 FX 이벤트 → 클라이언트 이펙트 생성 */
+export function applyFxEvent(fx, effects, particles) {
+  if (!fx) return;
+  switch (fx.kind) {
+    case 'slash':
+      effects?.push(createMeleeVisual(fx, fx.characterId || 'guardian'));
+      break;
+    case 'bloodNova': {
+      effects?.push(new RingEffect(fx.x, fx.y, fx.radius, '#c22', 0.55, 14));
+      effects?.push(new RingEffect(fx.x, fx.y, fx.radius * 0.65, '#f88', 0.4, 8));
+      effects?.push(new SlashEffect(fx.x, fx.y, 0, {
+        range: fx.radius * 0.5, arc: Math.PI * 2, color: '#f44', innerColor: '#800',
+        width: 6, life: 0.35, maxLife: 0.35,
+      }));
+      spawnParticles(particles, fx.x, fx.y, '#f44', 40);
+      break;
+    }
+    case 'bulletStorm': {
+      effects?.push(new SlashEffect(fx.x, fx.y, fx.angle, {
+        range: 120, arc: fx.spread || 0.75, color: '#48f', innerColor: '#bdf',
+        width: 8, life: 0.15, maxLife: 0.15,
+      }));
+      spawnParticles(particles, fx.x, fx.y, '#48f', 20);
+      break;
+    }
+    case 'shockwave': {
+      effects?.push(new RingEffect(fx.x, fx.y, fx.radius, '#9f9', 0.55, 14));
+      effects?.push(new RingEffect(fx.x, fx.y, fx.radius * 0.55, '#dfd', 0.35, 6));
+      spawnParticles(particles, fx.x, fx.y, '#8f8', 30);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+/** 특수기 시각 이펙트 + 멀티 동기화용 FX 이벤트 */
+export function spawnSpecialVisuals(player, stats, effects, particles) {
+  const char = getCharacter(stats.characterId);
+  const spec = char.special;
+  const fxEvents = [];
+
+  switch (spec.id) {
+    case 'bloodNova': {
+      const radius = spec.radius * (stats.specialRadiusMult || 1);
+      applyFxEvent({ kind: 'bloodNova', x: player.x, y: player.y, radius }, effects, particles);
+      fxEvents.push({ kind: 'bloodNova', x: player.x, y: player.y, radius });
+      break;
+    }
+    case 'bulletStorm': {
+      applyFxEvent({
+        kind: 'bulletStorm', x: player.x, y: player.y, angle: player.angle, spread: spec.spread,
+      }, effects, particles);
+      fxEvents.push({
+        kind: 'bulletStorm', x: player.x, y: player.y, angle: player.angle, spread: spec.spread,
+      });
+      break;
+    }
+    case 'shockwave': {
+      const radius = spec.radius * (stats.specialRadiusMult || 1);
+      applyFxEvent({ kind: 'shockwave', x: player.x, y: player.y, radius }, effects, particles);
+      fxEvents.push({ kind: 'shockwave', x: player.x, y: player.y, radius });
+      break;
+    }
+    default:
+      break;
+  }
+  return fxEvents;
+}
+
+/**
+ * 기본 공격 — 사수는 총알, 근접 캐릭터는 부채꼴 베기/강타
+ * @returns {object[]} 멀티 동기화용 FX 이벤트
+ */
+export function performPlayerAttack(player, stats, ctx) {
+  const { enemies, bullets, effects, particles, onEnemyHit } = ctx;
+  const char = getCharacter(stats.characterId);
+  const fxEvents = [];
+
+  if (char.attackStyle === 'ranged') {
+    const newBullets = fireBullets(player, stats);
+    if (bullets) bullets.push(...newBullets);
+    getPointBlankHits(player, stats, enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
+      if (enemy.dead) return;
+      let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + stats.critMult) : amount;
+      dmg *= stats.meleeDamageMult || 1;
+      onEnemyHit?.(enemy, dmg, angle, knockback, crit);
+    });
+    return fxEvents;
+  }
+
+  const opts = getMeleeAttackOpts(char, stats);
+
+  getSlashHits(player, stats, enemies, opts).forEach(({ enemy, amount, angle, knockback, crit }) => {
+    if (enemy.dead) return;
+    let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + stats.critMult) : amount;
+    onEnemyHit?.(enemy, dmg, angle, knockback, crit);
+  });
+
+  if (effects) effects.push(createMeleeVisual(player, char.id, stats));
+  if (particles) {
+    const px = player.x + Math.cos(player.angle) * 42;
+    const py = player.y + Math.sin(player.angle) * 42;
+    spawnParticles(particles, px, py, char.id === 'vampire' ? '#f55' : '#afa', 6);
+  }
+  fxEvents.push({
+    kind: 'slash', x: player.x, y: player.y, angle: player.angle, characterId: char.id,
+  });
+  return fxEvents;
+}
+
 /**
  * 특수 능력 발동
  * @returns {boolean} 사용 성공 여부
@@ -211,7 +362,7 @@ export function useSpecialAbility(player, stats, ctx) {
   const char = getCharacter(stats.characterId);
   const spec = char.special;
   const power = stats.specialPowerMult || 1;
-  const { enemies, bullets, particles, onEnemyKill, ownerId } = ctx;
+  const { enemies, bullets, particles, effects, fxEvents, onEnemyKill, ownerId } = ctx;
 
   switch (spec.id) {
     case 'bloodNova': {
@@ -230,7 +381,6 @@ export function useSpecialAbility(player, stats, ctx) {
         if (e.dead && wasAlive) onEnemyKill?.(e);
       });
       player.hp = Math.min(player.maxHp, player.hp + healed);
-      spawnParticles(particles, player.x, player.y, '#f44', 20);
       break;
     }
     case 'bulletStorm': {
@@ -249,7 +399,6 @@ export function useSpecialAbility(player, stats, ctx) {
         if (ownerId) b.ownerId = ownerId;
         bullets.push(b);
       }
-      spawnParticles(particles, player.x, player.y, '#48f', 14);
       break;
     }
     case 'shockwave': {
@@ -266,12 +415,14 @@ export function useSpecialAbility(player, stats, ctx) {
         if (e.dead && wasAlive) onEnemyKill?.(e);
       });
       player.specialShield = Math.max(player.specialShield || 0, 1.8);
-      spawnParticles(particles, player.x, player.y, '#8f8', 18);
       break;
     }
     default:
       return false;
   }
+
+  const specialFx = spawnSpecialVisuals(player, stats, effects, particles);
+  if (fxEvents && specialFx.length) fxEvents.push(...specialFx);
 
   player.specialMeter = 0;
   return true;

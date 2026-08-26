@@ -14,13 +14,15 @@ import { createStats, getRandomChoices, applyAugment, getAugmentTags } from './a
 import {
   getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility,
   canUseSpecial, getSpecialMeterMax, renderCharacterCards, loadSelectedCharacter, saveSelectedCharacter,
+  performPlayerAttack,
 } from './characters.js';
 import { touchControls } from './touchControls.js';
 import {
-  Player, spawnEnemy, spawnBoss, fireBullets,
+  Player, spawnEnemy, spawnBoss,
   spawnParticles, OrbitShield,
-  separateEnemiesFromPlayer, getPointBlankHits, getMeleeHits,
+  separateEnemiesFromPlayer, getMeleeHits,
   drawWorldBackground, worldToScreen, screenToWorld,
+  updateEffects, drawEffects,
 } from './entities.js';
 
 /** @type {HTMLCanvasElement} 게임 월드를 그리는 캔버스 */
@@ -95,6 +97,8 @@ let bullets;
 let enemyBullets;
 /** @type {Array} 이펙트 파티클 */
 let particles;
+/** @type {import('./entities.js').SlashEffect[]} 베기·충격파 등 전투 이펙트 */
+let effects;
 /** @type {Array} 궤도 실드(OrbitShield) 인스턴스 */
 let orbits;
 /** @type {number} 현재 레벨 */
@@ -210,6 +214,7 @@ function initGame(characterId = loadSelectedCharacter()) {
   bullets = [];
   enemyBullets = [];
   particles = [];
+  effects = [];
   orbits = [];
   spawnTimer = 0;
   bossRef = null;
@@ -463,7 +468,7 @@ function getEffectiveKeys() {
 function tryUseSpecial() {
   if (state !== STATES.PLAYING && state !== STATES.BOSS) return;
   if (!useSpecialAbility(player, stats, {
-    enemies, bullets, particles, onEnemyKill: (e) => onEnemyKill(e),
+    enemies, bullets, particles, effects, onEnemyKill: (e) => onEnemyKill(e),
   })) return;
   updateHud();
 }
@@ -482,12 +487,9 @@ function updatePlaying(dt) {
   player.contactCooldown = Math.max(0, (player.contactCooldown || 0) - dt);
 
   if (player.canFire(dt, stats)) {
-    bullets.push(...fireBullets(player, stats));
-    getPointBlankHits(player, stats, enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
-      if (enemy.dead) return;
-      let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + stats.critMult) : amount;
-      dmg *= stats.meleeDamageMult || 1;
-      applyEnemyHit(enemy, dmg, angle, knockback, crit);
+    performPlayerAttack(player, stats, {
+      enemies, bullets, effects, particles,
+      onEnemyHit: (enemy, dmg, angle, knockback, crit) => applyEnemyHit(enemy, dmg, angle, knockback, crit),
     });
   }
 
@@ -592,6 +594,7 @@ function updatePlaying(dt) {
 
   particles.forEach((p) => p.update(dt));
   particles = particles.filter((p) => p.life > 0);
+  effects = updateEffects(effects, dt);
 
   floatingTexts.forEach((t) => {
     t.life -= dt;
@@ -637,12 +640,13 @@ function draw() {
 
   drawWorldBackground(ctx, camera, w, h, cx, cy);
 
+  drawEffects(ctx, effects, camera, cx, cy);
   particles.forEach((p) => p.draw(ctx, camera, cx, cy));
   enemies.forEach((e) => e.draw(ctx, camera, cx, cy));
   enemyBullets.forEach((b) => b.draw(ctx, camera, cx, cy));
   bullets.forEach((b) => b.draw(ctx, camera, cx, cy));
   orbits.forEach((o) => o.draw(ctx, camera, cx, cy));
-  player.draw(ctx, cx, cy, playerColor);
+  player.draw(ctx, cx, cy, playerColor, stats.characterId);
 
   if (state === STATES.PLAYING || state === STATES.BOSS) {
     const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);

@@ -17,10 +17,12 @@ import { NetworkClient } from './network.js';
 import { WS_URL } from './network-config.js';
 import {
   renderCharacterCards, loadSelectedCharacter, saveSelectedCharacter, getCharacter,
+  applyFxEvent,
 } from './characters.js';
 import { touchControls } from './touchControls.js';
 import {
   drawWorldBackground, drawRemotePlayer, drawEnemySnapshot, worldToScreen, spawnParticles,
+  drawPlayerAvatar, updateEffects, drawEffects,
 } from './entities.js';
 
 /** @type {HTMLCanvasElement} 게임 렌더링 캔버스 */
@@ -132,6 +134,8 @@ let lastAugmentChoicesKey = '';
 const localSim = { x: 0, y: 0, angle: 0, ready: false };
 /** @type {Array} 파티클(적 사망 등) 인스턴스 목록 */
 const particles = [];
+/** @type {import('./entities.js').SlashEffect[]} 서버 FX 이벤트 기반 전투 이펙트 */
+const effects = [];
 /** @type {object} 렌더 보간용 이전/현재 스냅샷 및 blend 계수 */
 const renderSnap = {
   enemies: [], prevEnemies: [], bullets: [], prevBullets: [],
@@ -589,6 +593,9 @@ function onState(state) {
   updateHudSafeTop();
 
   detectEnemyDeaths(state.enemies);
+  if (state.fxEvents?.length) {
+    state.fxEvents.forEach((fx) => applyFxEvent(fx, effects, particles));
+  }
   renderSnap.prevEnemies = renderSnap.enemies.length ? renderSnap.enemies : state.enemies;
   renderSnap.prevBullets = renderSnap.bullets.length ? renderSnap.bullets : state.bullets;
   renderSnap.prevEnemyBullets = renderSnap.enemyBullets?.length
@@ -664,6 +671,7 @@ function resetClientForLobby() {
   gameState = null;
   enemySnapshots.clear();
   particles.length = 0;
+  effects.length = 0;
   renderSnap.enemies = [];
   renderSnap.prevEnemies = [];
   renderSnap.bullets = [];
@@ -773,26 +781,15 @@ function draw() {
   const renderBullets = getInterpolatedBullets(gameState.bullets, renderSnap.prevBullets);
   renderBullets.forEach((b) => drawBulletSnapshot(b, playerColors[b.ownerId] || '#ff8'));
 
+  drawEffects(ctx, effects, camera, cx, cy);
   particles.forEach((p) => p.draw(ctx, camera, cx, cy));
 
   for (const p of getInterpolatedPlayers()) {
     if (p.id === net.playerId && p.alive && !spectating) {
       const pang = useLocal ? localSim.angle : p.angle;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(pang);
-      ctx.beginPath();
-      ctx.arc(0, 0, CONFIG.PLAYER.radius, 0, Math.PI * 2);
-      ctx.fillStyle = p.color;
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = '#bdf';
-      ctx.fillRect(CONFIG.PLAYER.radius - 2, -4, 14, 8);
-      ctx.restore();
+      drawPlayerAvatar(ctx, cx, cy, pang, p.color, p.characterId || 'gunner');
     } else if (p.alive) {
-      drawRemotePlayer(ctx, p.x, p.y, p.angle, p.color, p.name, camera, cx, cy);
+      drawRemotePlayer(ctx, p.x, p.y, p.angle, p.color, p.name, camera, cx, cy, p.characterId || 'gunner');
     }
   }
 
@@ -873,6 +870,9 @@ function loop(timestamp) {
   for (let i = particles.length - 1; i >= 0; i--) {
     if (particles[i].life <= 0) particles.splice(i, 1);
   }
+  const aliveEffects = updateEffects(effects, dt);
+  effects.length = 0;
+  effects.push(...aliveEffects);
 
   applyLocalSimulation(dt);
 

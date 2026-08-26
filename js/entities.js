@@ -83,24 +83,45 @@ export class Player {
     return true;
   }
 
-  /** 플레이어 원형 몸체와 총구 방향 표시 (로컬 좌표 기준) */
-  draw(ctx, cx, cy, color = '#3af') {
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(this.angle);
-
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.invincible > 0 && Math.floor(Date.now() / 80) % 2 ? '#fff' : color;
-    ctx.fill();
-    ctx.strokeStyle = '#8cf';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#bdf';
-    ctx.fillRect(this.radius - 2, -4, 14, 8);
-    ctx.restore();
+  /** 플레이어 원형 몸체 — characterId에 따라 무기 표시 */
+  draw(ctx, cx, cy, color = '#3af', characterId = 'gunner') {
+    drawPlayerAvatar(ctx, cx, cy, this.angle, color, characterId, this.invincible);
   }
+}
+
+/** 플레이어 아바타(몸체+무기) — 월드/화면 좌표 모두 cx,cy 기준 */
+export function drawPlayerAvatar(ctx, cx, cy, angle, color, characterId = 'gunner', invincible = 0) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, CONFIG.PLAYER.radius, 0, Math.PI * 2);
+  ctx.fillStyle = invincible > 0 && Math.floor(Date.now() / 80) % 2 ? '#fff' : color;
+  ctx.fill();
+  ctx.strokeStyle = characterId === 'vampire' ? '#a22' : characterId === 'guardian' ? '#6a6' : '#8cf';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (characterId === 'gunner') {
+    ctx.fillStyle = '#bdf';
+    ctx.fillRect(CONFIG.PLAYER.radius - 2, -4, 14, 8);
+  } else if (characterId === 'vampire') {
+    ctx.strokeStyle = '#f88';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(CONFIG.PLAYER.radius + 2, -10);
+    ctx.lineTo(CONFIG.PLAYER.radius + 18, 0);
+    ctx.lineTo(CONFIG.PLAYER.radius + 2, 10);
+    ctx.stroke();
+  } else if (characterId === 'guardian') {
+    ctx.fillStyle = 'rgba(180, 200, 180, 0.85)';
+    ctx.strokeStyle = '#cfc';
+    ctx.lineWidth = 2;
+    ctx.fillRect(CONFIG.PLAYER.radius - 2, -14, 12, 28);
+    ctx.strokeRect(CONFIG.PLAYER.radius - 2, -14, 12, 28);
+  }
+  ctx.restore();
 }
 
 /** 플레이어가 발사하는 총알 — 관통·크리티컬·넉백 지원 */
@@ -560,6 +581,137 @@ export class OrbitShield {
   }
 }
 
+/** 부채꼴 근접 베기/강타 타격 판정 */
+export function getSlashHits(player, stats, enemies, opts = {}) {
+  const {
+    range = 70,
+    arc = 1.0,
+    damageMult = 1,
+    knockbackMult = 1,
+  } = opts;
+  const hits = [];
+  const damage = CONFIG.PLAYER.baseDamage * stats.damageMult * damageMult
+    * (stats.meleeDamageMult || 1);
+  const knockback = 160 * stats.knockbackMult * knockbackMult;
+  const halfArc = arc / 2;
+
+  enemies.forEach((e) => {
+    if (e.dead) return;
+    const dx = e.x - player.x;
+    const dy = e.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > range + e.radius) return;
+    const angleToEnemy = Math.atan2(dy, dx);
+    let diff = angleToEnemy - player.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) > halfArc) return;
+    const crit = Math.random() < CONFIG.PLAYER.baseCritChance + stats.critChance;
+    hits.push({ enemy: e, amount: damage, angle: angleToEnemy, knockback, crit });
+  });
+  return hits;
+}
+
+/** 베기/강타 시각 이펙트 — 부채꼴 아크 */
+export class SlashEffect {
+  constructor(x, y, angle, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.range = opts.range || 70;
+    this.arc = opts.arc || 1.0;
+    this.color = opts.color || '#f88';
+    this.innerColor = opts.innerColor || '#faa';
+    this.width = opts.width || 10;
+    this.life = opts.life ?? 0.2;
+    this.maxLife = opts.maxLife ?? this.life;
+  }
+
+  update(dt) {
+    this.life -= dt;
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    const alpha = this.life / this.maxLife;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(this.angle);
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, this.range, -this.arc / 2, this.arc / 2);
+    ctx.closePath();
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.range);
+    grad.addColorStop(0, this.innerColor);
+    grad.addColorStop(0.55, this.color);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.width * alpha;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(0, 0, this.range * 0.92, -this.arc / 2, this.arc / 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+/** 확장 링 이펙트 — 특수기 파동/충격파 */
+export class RingEffect {
+  constructor(x, y, maxRadius, color, duration = 0.45, width = 8) {
+    this.x = x;
+    this.y = y;
+    this.maxRadius = maxRadius;
+    this.color = color;
+    this.width = width;
+    this.life = duration;
+    this.maxLife = duration;
+  }
+
+  update(dt) {
+    this.life -= dt;
+  }
+
+  get radius() {
+    const t = 1 - this.life / this.maxLife;
+    return this.maxRadius * t;
+  }
+
+  draw(ctx, camera, cx, cy) {
+    const s = worldToScreen(this.x, this.y, camera, cx, cy);
+    const alpha = this.life / this.maxLife;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.width * alpha;
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 14 * alpha;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = alpha * 0.25;
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+/** 이펙트 배열 업데이트·만료 제거 */
+export function updateEffects(effects, dt) {
+  effects.forEach((e) => e.update(dt));
+  return effects.filter((e) => e.life > 0);
+}
+
+/** 이펙트 배열 렌더 */
+export function drawEffects(ctx, effects, camera, cx, cy) {
+  effects.forEach((e) => e.draw(ctx, camera, cx, cy));
+}
+
 /** 짧은 수명의 이펙트 파티클 — 폭발·피격 시각 효과 */
 export class Particle {
   constructor(x, y, color, speed = 100) {
@@ -618,21 +770,9 @@ function pickEnemyType(level) {
 }
 
 /** 멀티플레이 원격 플레이어 아바타 및 닉네임 렌더링 */
-export function drawRemotePlayer(ctx, x, y, angle, color, name, camera, cx, cy) {
+export function drawRemotePlayer(ctx, x, y, angle, color, name, camera, cx, cy, characterId = 'gunner') {
   const s = worldToScreen(x, y, camera, cx, cy);
-  ctx.save();
-  ctx.translate(s.x, s.y);
-  ctx.rotate(angle);
-  ctx.beginPath();
-  ctx.arc(0, 0, CONFIG.PLAYER.radius, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = '#bdf';
-  ctx.fillRect(CONFIG.PLAYER.radius - 2, -4, 14, 8);
-  ctx.restore();
+  drawPlayerAvatar(ctx, s.x, s.y, angle, color, characterId);
   if (name) {
     ctx.fillStyle = '#fff';
     ctx.font = '11px sans-serif';

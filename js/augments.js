@@ -11,7 +11,7 @@ export const AUGMENTS = [
     id: 'damage',
     name: '공격력',
     icon: '⚔',
-    desc: '탄환 데미지 +30%',
+    desc: '공격력 +30%',
     apply: (s) => { s.damageMult *= 1.3; },
     maxTier: 16,
   },
@@ -19,7 +19,7 @@ export const AUGMENTS = [
     id: 'fireRate',
     name: '공격속도',
     icon: '🔥',
-    desc: '발사 속도 +50%',
+    desc: '공격 속도 +50%',
     apply: (s) => { s.fireRateMult *= 1.5; },
     maxTier: 16,
   },
@@ -28,6 +28,7 @@ export const AUGMENTS = [
     name: '탄환 속도',
     icon: '💨',
     desc: '탄환 속도 +25%',
+    attackStyle: 'ranged',
     apply: (s) => { s.bulletSpeedMult *= 1.25; },
     maxTier: 12,
   },
@@ -36,6 +37,7 @@ export const AUGMENTS = [
     name: '멀티샷',
     icon: '🎯',
     desc: '추가 탄환 +1',
+    attackStyle: 'ranged',
     apply: (s) => { s.bulletCount += 1; },
     maxTier: 10,
   },
@@ -44,6 +46,7 @@ export const AUGMENTS = [
     name: '관통',
     icon: '➡',
     desc: '탄환 관통 +1 (모든 탄환 동일 적용)',
+    attackStyle: 'ranged',
     apply: (s) => { s.pierce += 1; },
     maxTier: 10,
   },
@@ -104,11 +107,48 @@ export const AUGMENTS = [
     name: '산탄',
     icon: '🌟',
     desc: '탄환 분산 +2 (데미지 -10%)',
+    attackStyle: 'ranged',
     apply: (s) => {
       s.bulletCount += 2;
       s.damageMult *= 0.9;
     },
     maxTier: 8,
+  },
+  {
+    id: 'meleeReach',
+    name: '길이 연장',
+    icon: '📏',
+    desc: '근접 사거리 +18%',
+    attackStyle: 'melee',
+    apply: (s) => { s.meleeRangeMult *= 1.18; },
+    maxTier: 10,
+  },
+  {
+    id: 'wideSlash',
+    name: '넓은 베기',
+    icon: '🌙',
+    desc: '공격 각도 +25% (데미지 -10%)',
+    attackStyle: 'melee',
+    apply: (s) => { s.meleeArcMult *= 1.25; s.damageMult *= 0.9; },
+    maxTier: 8,
+  },
+  {
+    id: 'cleave',
+    name: '연속 베기',
+    icon: '⚔',
+    desc: '근접 공격력 +22%',
+    attackStyle: 'melee',
+    apply: (s) => { s.meleeDamageMult *= 1.22; },
+    maxTier: 10,
+  },
+  {
+    id: 'deepCut',
+    name: '깊은 일격',
+    icon: '➡',
+    desc: '사거리 +15%, 넉백 +20%',
+    attackStyle: 'melee',
+    apply: (s) => { s.meleeRangeMult *= 1.15; s.knockbackMult *= 1.2; },
+    maxTier: 10,
   },
   {
     id: 'orbit',
@@ -145,10 +185,17 @@ export function createStats(characterId = 'gunner') {
     specialRadiusMult: 1,
     specialLifeStealBonus: 0,
     meleeDamageMult: 1,
+    meleeRangeMult: 1,
+    meleeArcMult: 1,
     lifeSteal: 0,
     damageReduction: 0,
     picked: {},
   };
+}
+
+/** id로 증강 정의 조회 (일반 + 캐릭터 전용) */
+export function getAugmentById(id) {
+  return AUGMENTS.find((a) => a.id === id) || SPECIAL_AUGMENTS.find((a) => a.id === id);
 }
 
 /**
@@ -157,11 +204,13 @@ export function createStats(characterId = 'gunner') {
  * @param {number} count - 후보 개수 (기본 3)
  */
 export function getRandomChoices(stats, count = 3) {
+  const attackStyle = getCharacter(stats.characterId).attackStyle;
   const pool = [...AUGMENTS, ...SPECIAL_AUGMENTS];
   const available = pool.filter((a) => {
     const tier = stats.picked[a.id] || 0;
     if (tier >= a.maxTier) return false;
     if (a.characterId && a.characterId !== stats.characterId) return false;
+    if (a.attackStyle && a.attackStyle !== attackStyle) return false;
     return true;
   });
 
@@ -181,7 +230,7 @@ export function applyAugment(augment, stats, player) {
 /** HUD에 표시할 증강 태그 문자열 배열 */
 export function getAugmentTags(stats) {
   return Object.entries(stats.picked).map(([id, tier]) => {
-    const aug = AUGMENTS.find((a) => a.id === id) || SPECIAL_AUGMENTS.find((a) => a.id === id);
+    const aug = getAugmentById(id);
     return aug ? `${aug.name} Lv${tier}` : id;
   });
 }

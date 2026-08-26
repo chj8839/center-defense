@@ -8,14 +8,15 @@
  * 싱글플레이와 동일한 전투·증강 규칙을 적용합니다.
  */
 import { CONFIG, expForLevel, spawnIntervalForLevel, isBossLevel, getBossType } from '../js/config.js';
-import { createStats, getRandomChoices, applyAugment, AUGMENTS } from '../js/augments.js';
+import { createStats, getRandomChoices, applyAugment, getAugmentById } from '../js/augments.js';
 import {
   getCharacter, applyCharacterBase, chargeSpecialMeter, useSpecialAbility, getSpecialMeterMax,
+  performPlayerAttack,
 } from '../js/characters.js';
 import {
   Player, Enemy, Boss, Bullet, EnemyBullet,
-  spawnEnemy, spawnBoss, fireBullets,
-  getPointBlankHits, getMeleeHits,
+  spawnEnemy, spawnBoss,
+  getMeleeHits,
 } from '../js/entities.js';
 
 /** 플레이어 슬롯별 표시 색상 (최대 4인) */
@@ -133,6 +134,7 @@ export class GameRoom {
     this.enemies = [];
     this.bullets = [];
     this.enemyBullets = [];
+    this.fxEvents = [];
     this.spawnTimer = 0;
     this.tick = 0;
     this.lastTick = Date.now();
@@ -202,6 +204,7 @@ export class GameRoom {
     this.enemies = [];
     this.bullets = [];
     this.enemyBullets = [];
+    this.fxEvents = [];
     this.spawnTimer = 0;
     for (const p of this.players.values()) {
       const cid = p.characterId || p.stats?.characterId || 'gunner';
@@ -324,7 +327,7 @@ export class GameRoom {
     const entry = p.augmentQueue[0];
     const choice = entry.choices.find((a) => a.id === augmentId);
     if (!choice) return;
-    const augDef = AUGMENTS.find((a) => a.id === augmentId);
+    const augDef = getAugmentById(augmentId);
     if (!augDef) return;
     const aug = { ...augDef, tier: choice.tier };
     applyAugment(aug, p.stats, p.player);
@@ -483,6 +486,7 @@ export class GameRoom {
         enemies: this.enemies,
         bullets: this.bullets,
         particles: [],
+        fxEvents: this.fxEvents,
         ownerId: p.id,
         onEnemyKill: (e) => this.onEnemyKill(p, e),
       });
@@ -490,16 +494,18 @@ export class GameRoom {
     }
 
     if (p.player.canFire(dt, p.stats)) {
-      const newBullets = fireBullets(p.player, p.stats);
-      newBullets.forEach((b) => { b.ownerId = p.id; });
-      this.bullets.push(...newBullets);
-
-      getPointBlankHits(p.player, p.stats, this.enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
-        if (enemy.dead) return;
-        let dmg = crit ? amount * (CONFIG.PLAYER.baseCritMult + p.stats.critMult) : amount;
-        dmg *= p.stats.meleeDamageMult || 1;
-        this.applyHit(enemy, dmg, angle, knockback, p);
+      const bulletStart = this.bullets.length;
+      const fx = performPlayerAttack(p.player, p.stats, {
+        enemies: this.enemies,
+        bullets: this.bullets,
+        onEnemyHit: (enemy, dmg, angle, knockback) => {
+          this.applyHit(enemy, dmg, angle, knockback, p);
+        },
       });
+      for (let i = bulletStart; i < this.bullets.length; i++) {
+        this.bullets[i].ownerId = p.id;
+      }
+      this.fxEvents.push(...fx);
     }
 
     getMeleeHits(p.player, p.stats, this.enemies, dt).forEach(({ enemy, amount, angle, knockback }) => {
@@ -757,7 +763,7 @@ export class GameRoom {
         gameState: p.gameState,
         moveSpeedMult: p.stats.moveSpeedMult,
         augmentTags: Object.entries(p.stats.picked).map(([aid, tier]) => {
-          const aug = AUGMENTS.find((a) => a.id === aid);
+          const aug = getAugmentById(aid);
           return aug ? `${aug.name} Lv${tier}` : aid;
         }),
         bossWarning: p.gameState === 'bossWarning' && p.pendingBoss
@@ -789,6 +795,7 @@ export class GameRoom {
       })),
       augmentChoices: me?.augmentQueue?.[0]?.choices ?? null,
       pendingAugments: me?.augmentQueue?.length ?? 0,
+      fxEvents: this.fxEvents.splice(0),
     };
   }
 }
