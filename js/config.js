@@ -264,6 +264,16 @@ export const CONFIG = {
   PARTICLES: {
     max: 250,
   },
+
+  /** 멀티플레이 서버 부하·동기화 튜닝 (Railway 등 소형 VM 기준) */
+  MULTI: {
+    tickRate: 30,
+    broadcastRate: 20,
+    maxSimEnemies: 100,
+    maxEnemyBullets: 160,
+    simCullRadius: 1680,
+    syncRadius: 920,
+  },
 };
 
 /**

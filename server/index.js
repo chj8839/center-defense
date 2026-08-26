@@ -14,7 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
-import { RoomManager, TICK_RATE } from './gameRoom.js';
+import { RoomManager, TICK_RATE, BROADCAST_RATE } from './gameRoom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -280,7 +280,7 @@ setInterval(() => {
   }
 }, 30000);
 
-/** 게임 틱 브로드캐스트 — TICK_RATE(Hz)로 playing 방의 getStateFor를 각 클라이언트에 전송 */
+/** 게임 틱 브로드캐스트 — BROADCAST_RATE(Hz)로 playing 방 state 전송 (시뮬 30Hz, 전송 20Hz) */
 setInterval(() => {
   for (const room of rooms.getPlayingRooms()) {
     for (const [pid] of room.players) {
@@ -288,7 +288,7 @@ setInterval(() => {
       if (ws) send(ws, room.getStateFor(pid));
     }
   }
-}, 1000 / TICK_RATE);
+}, 1000 / BROADCAST_RATE);
 
 server.listen(PORT, () => {
   console.log(`Center Defense server on port ${PORT}`);

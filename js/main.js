@@ -416,21 +416,17 @@ function getEffectiveKeys() {
 /**
  * PLAYING/BOSS 프레임: 이동·사격·스폰·충돌·파티클·HUD를 한 틱 갱신한다.
  * @param {number} dt 델타 시간(초, 상한 0.05)
- * @param {{ allowPlayer?: boolean }} [options] allowPlayer=false면 증강 선택 중 보스 전투만 진행
  */
-function updatePlaying(dt, options = {}) {
-  const allowPlayer = options.allowPlayer !== false;
+function updatePlaying(dt) {
   const aim = touchControls.getAimScreenPos(mouse.x, mouse.y);
   worldMouse.x = aim.x - cx + camera.x;
   worldMouse.y = aim.y - cy + camera.y;
 
-  if (allowPlayer) {
-    player.update(dt, worldMouse, stats, getEffectiveKeys());
-    updateCamera();
-  }
+  player.update(dt, worldMouse, stats, getEffectiveKeys());
+  updateCamera();
   player.contactCooldown = Math.max(0, (player.contactCooldown || 0) - dt);
 
-  if (allowPlayer && player.canFire(dt, stats)) {
+  if (player.canFire(dt, stats)) {
     bullets.push(...fireBullets(player, stats));
     getPointBlankHits(player, stats, enemies).forEach(({ enemy, amount, angle, knockback, crit }) => {
       if (enemy.dead) return;
@@ -439,13 +435,12 @@ function updatePlaying(dt, options = {}) {
     });
   }
 
-  if (allowPlayer) {
-    getMeleeHits(player, stats, enemies, dt).forEach(({ enemy, amount, angle, knockback }) => {
-      if (enemy.dead) return;
-      applyEnemyHit(enemy, amount, angle, knockback);
-    });
-    orbits.forEach((o) => o.update(dt));
-  }
+  getMeleeHits(player, stats, enemies, dt).forEach(({ enemy, amount, angle, knockback }) => {
+    if (enemy.dead) return;
+    applyEnemyHit(enemy, amount, angle, knockback);
+  });
+
+  orbits.forEach((o) => o.update(dt));
 
   if (state === STATES.PLAYING) {
     spawnTimer -= dt;
@@ -630,8 +625,6 @@ function loop(timestamp) {
 
     if (state === STATES.PLAYING || state === STATES.BOSS) {
       updatePlaying(dt);
-    } else if (state === STATES.LEVEL_UP && bossRef) {
-      updatePlaying(dt, { allowPlayer: false });
     } else if (state === STATES.BOSS_WARNING) {
       bossWarningTimer -= dt;
       if (bossWarningTimer <= 0) {

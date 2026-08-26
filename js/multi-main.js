@@ -108,8 +108,8 @@ const reconnectBtn = document.getElementById('reconnectBtn');
 /** @type {HTMLElement} 방장 게임 시작 버튼 */
 const startMultiBtn = document.getElementById('startMultiBtn');
 
-/** 서버 state 브로드캐스트 주기(ms) — gameRoom TICK_RATE와 동기 */
-const SERVER_TICK_MS = 1000 / 30;
+/** 서버 state 브로드캐스트 주기(ms) — CONFIG.MULTI.broadcastRate와 동기 */
+const SERVER_TICK_MS = 1000 / CONFIG.MULTI.broadcastRate;
 /** @type {number} 마지막 서버 state 수신 시각(performance.now) */
 let lastStateAt = 0;
 

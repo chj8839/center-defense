@@ -18,14 +18,19 @@ import {
 /** 플레이어 슬롯별 표시 색상 (최대 4인) */
 const PLAYER_COLORS = ['#3af', '#f84', '#4f4', '#fc4'];
 
-/** 게임 시뮬레이션 틱률(Hz) — startGame setInterval 및 서버 브로드캐스트 기준 */
-export const TICK_RATE = 30;
+/** 게임 시뮬레이션 틱률(Hz) */
+export const TICK_RATE = CONFIG.MULTI.tickRate;
+
+/** 클라이언트 state 전송 틱률(Hz) — 시뮬보다 낮춰 CPU·대역폭 절약 */
+export const BROADCAST_RATE = CONFIG.MULTI.broadcastRate;
 
 /** 적 스폰·시야 계산용 가상 뷰포트 너비 */
 const VIEW_W = 1280;
 
 /** 적 스폰·시야 계산용 가상 뷰포트 높이 */
 const VIEW_H = 720;
+
+const { maxSimEnemies, maxEnemyBullets, simCullRadius, syncRadius } = CONFIG.MULTI;
 
 /**
  * 4자리 대문자+숫자 방 참가 코드 생성 (혼동 문자 I/O/0/1 제외)
@@ -91,6 +96,25 @@ function getSpawnAnchor(players) {
   const x = alive.reduce((s, p) => s + p.player.x, 0) / alive.length;
   const y = alive.reduce((s, p) => s + p.player.y, 0) / alive.length;
   return { x, y };
+}
+
+/** (x,y)가 생존 플레이어 중 한 명의 radius 이내인지 */
+function nearAnyPlayer(x, y, players, radius) {
+  const r2 = radius * radius;
+  for (const p of players.values()) {
+    if (!p.alive) continue;
+    const dx = x - p.player.x;
+    const dy = y - p.player.y;
+    if (dx * dx + dy * dy <= r2) return true;
+  }
+  return false;
+}
+
+/** getStateFor — 수신 플레이어 시야에 들어오는 엔티티만 포함 */
+function inSyncRange(x, y, focusX, focusY) {
+  const dx = x - focusX;
+  const dy = y - focusY;
+  return dx * dx + dy * dy <= syncRadius * syncRadius;
 }
 
 export class GameRoom {
@@ -487,6 +511,7 @@ export class GameRoom {
     const worldLevel = getWorldLevel(this.players);
     const anchor = getSpawnAnchor(this.players);
     const fakePlayer = { x: anchor.x, y: anchor.y };
+    const bulletCull = simCullRadius;
 
     for (const p of this.players.values()) {
       this.updatePlayer(p, dt);
@@ -499,7 +524,7 @@ export class GameRoom {
     // 일반 적 스폰: 생존+playing/boss 플레이어가 있을 때 spawnTimer 기준, 앵커·월드레벨 반영
     if (anyPlaying) {
       this.spawnTimer -= dt;
-      if (this.spawnTimer <= 0) {
+      if (this.spawnTimer <= 0 && this.enemies.length < maxSimEnemies) {
         this.enemies.push(spawnEnemy(fakePlayer, VIEW_W, VIEW_H, worldLevel));
         this.spawnTimer = this.getSpawnInterval();
       }
@@ -513,7 +538,9 @@ export class GameRoom {
         boss.minionTimer -= dt;
         if (boss.minionTimer <= 0) {
           const count = boss.minionCount || 3;
-          for (let i = 0; i < count; i++) {
+          const room = maxSimEnemies - this.enemies.length;
+          const spawnCount = room > 0 ? Math.min(count, room) : 0;
+          for (let i = 0; i < spawnCount; i++) {
             this.enemies.push(spawnEnemy(p.player, VIEW_W, VIEW_H, p.level));
           }
           boss.minionTimer = boss.minionInterval;
@@ -553,21 +580,23 @@ export class GameRoom {
       if (!owner?.alive) continue;
       for (const e of this.enemies) {
         if (e.dead || b.dead) continue;
-        if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) {
-          if (!b.canHit(e)) continue;
-          const { amount, crit } = b.getDamage();
-          this.applyHit(e, amount, b.angle, b.knockback, owner);
-          b.registerHit(e);
-        }
+        const dx = b.x - e.x;
+        const dy = b.y - e.y;
+        const hitR = b.radius + e.radius;
+        if (dx * dx + dy * dy >= hitR * hitR) continue;
+        if (!b.canHit(e)) continue;
+        const { amount, crit } = b.getDamage();
+        this.applyHit(e, amount, b.angle, b.knockback, owner);
+        b.registerHit(e);
       }
     }
 
     this.enemyBullets.forEach((b) => b.update(dt));
-    const bulletCull = Math.max(VIEW_W, VIEW_H) + 400;
     this.enemyBullets = this.enemyBullets.filter((b) => {
       if (b.dead) return false;
-      const anchor = getSpawnAnchor(this.players);
-      if (Math.hypot(b.x - anchor.x, b.y - anchor.y) > bulletCull) return false;
+      const dx = b.x - anchor.x;
+      const dy = b.y - anchor.y;
+      if (dx * dx + dy * dy > bulletCull * bulletCull) return false;
       for (const p of this.players.values()) {
         if (!p.alive || this.isPausedPlayer(p)) continue;
         if (Math.hypot(b.x - p.player.x, b.y - p.player.y) < b.radius + p.player.radius) {
@@ -582,30 +611,38 @@ export class GameRoom {
       }
       return true;
     });
+    if (this.enemyBullets.length > maxEnemyBullets) {
+      this.enemyBullets.splice(0, this.enemyBullets.length - maxEnemyBullets);
+    }
 
     for (const e of this.enemies) {
       if (e.dead || e.typeKey === 'ranged') continue;
       for (const p of this.players.values()) {
         if (!p.alive || this.isPausedPlayer(p)) continue;
-        const dist = Math.hypot(e.x - p.player.x, e.y - p.player.y);
-        if (dist < e.radius + p.player.radius) {
-          const angle = Math.atan2(e.y - p.player.y, e.x - p.player.x);
-          e.knockbackX += Math.cos(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
-          e.knockbackY += Math.sin(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
-          if (p.player.contactCooldown <= 0) {
-            if (p.player.takeDamage(e.damage)) {
-              p.player.contactCooldown = 0.4;
-              if (p.player.hp <= 0) {
-                p.alive = false;
-                p.gameState = 'gameOver';
-              }
+        const dx = e.x - p.player.x;
+        const dy = e.y - p.player.y;
+        const hitR = e.radius + p.player.radius;
+        if (dx * dx + dy * dy >= hitR * hitR) continue;
+        const angle = Math.atan2(dy, dx);
+        e.knockbackX += Math.cos(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
+        e.knockbackY += Math.sin(angle) * 280 * p.stats.knockbackMult * (1 - e.knockbackResist);
+        if (p.player.contactCooldown <= 0) {
+          if (p.player.takeDamage(e.damage)) {
+            p.player.contactCooldown = 0.4;
+            if (p.player.hp <= 0) {
+              p.alive = false;
+              p.gameState = 'gameOver';
             }
           }
         }
       }
     }
 
-    this.enemies = this.enemies.filter((e) => !e.dead);
+    this.enemies = this.enemies.filter((e) => {
+      if (e.dead) return false;
+      if (e.typeKey === 'boss') return true;
+      return nearAnyPlayer(e.x, e.y, this.players, simCullRadius);
+    });
 
     if (!this.hasActivePlayers()) {
       this.endRound();
@@ -637,6 +674,10 @@ export class GameRoom {
    */
   getStateFor(id) {
     const me = this.players.get(id);
+    const focus = me?.alive ? me.player : getSpawnAnchor(this.players);
+    const focusX = focus.x;
+    const focusY = focus.y;
+    const visible = (x, y, always = false) => always || inSyncRange(x, y, focusX, focusY);
     return {
       type: 'state',
       tick: this.tick,
@@ -669,7 +710,7 @@ export class GameRoom {
           : null,
         pendingAugments: p.augmentQueue?.length ?? 0,
       })),
-      enemies: this.enemies.map((e) => ({
+      enemies: this.enemies.filter((e) => visible(e.x, e.y, e.typeKey === 'boss')).map((e) => ({
         id: e.id,
         x: e.x,
         y: e.y,
@@ -685,10 +726,10 @@ export class GameRoom {
         ownerId: e.ownerId || null,
         pattern: e.pattern || null,
       })),
-      bullets: this.bullets.filter((b) => !b.dead).map((b) => ({
+      bullets: this.bullets.filter((b) => !b.dead && visible(b.x, b.y)).map((b) => ({
         id: b.id, x: b.x, y: b.y, angle: b.angle, ownerId: b.ownerId,
       })),
-      enemyBullets: this.enemyBullets.map((b) => ({
+      enemyBullets: this.enemyBullets.filter((b) => visible(b.x, b.y)).map((b) => ({
         id: b.id, x: b.x, y: b.y, radius: b.radius,
       })),
       augmentChoices: me?.augmentQueue?.[0]?.choices ?? null,
