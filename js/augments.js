@@ -83,9 +83,9 @@ export const AUGMENTS = [
     id: 'expGain',
     name: 'EXP 획득',
     icon: '✨',
-    desc: 'EXP 획득량 +40%',
-    apply: (s) => { s.expMult *= 1.4; },
-    maxTier: 12,
+    desc: 'EXP 획득량 +20%',
+    apply: (s) => { s.expMult *= 1.2; },
+    maxTier: 6,
   },
   {
     id: 'moveSpeed',
